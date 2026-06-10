@@ -1,0 +1,214 @@
+/**
+ * Track definitions — pure data, all coordinates on an integer-ish grid so
+ * fxConst conversion is exact. Themes are render-only.
+ *
+ * Authoring rules (enforced by sim/test/tracks.test.ts):
+ *  - centerline is a CCW closed loop; interior on the left of travel
+ *  - no fence self-intersection (mind wide dirt at sharp corners)
+ *  - >= 2 checkpoint verts, first one is the start/finish line
+ *  - 4 spawn poses behind the start line, on the asphalt
+ *  - the greedy gate-seeking bot must be able to finish (gates visible
+ *    around corners — add intermediate gates on tight sections)
+ *  - coordinates within +-400 units (wide-math exactness bound)
+ */
+import type { TrackDef } from './track.js';
+
+const SUNNY_CIRCUIT: TrackDef = {
+  id: 'sunny-circuit',
+  name: 'Sunny Circuit',
+  verts: [
+    { x: -20, y: -40 }, // 0: start/finish
+    { x: 20, y: -40 },
+    { x: 52, y: -34 },
+    { x: 70, y: -14 },
+    { x: 70, y: 16 },
+    { x: 56, y: 38 },
+    { x: 32, y: 48 },
+    { x: 8, y: 46 },
+    { x: -12, y: 30 }, // 8: chicane dip
+    { x: -32, y: 40 },
+    { x: -52, y: 48 },
+    { x: -72, y: 38 },
+    { x: -82, y: 14 },
+    { x: -82, y: -14 },
+    { x: -68, y: -36 },
+    { x: -46, y: -40 },
+  ],
+  checkpointVerts: [0, 2, 4, 6, 8, 10, 12, 14],
+  itemVerts: [1, 6, 13],
+  boostPads: [],
+  spawns: [
+    [-25, -42.4, 0],
+    [-25, -37.6, 0],
+    [-29, -42.4, 0],
+    [-29, -37.6, 0],
+  ],
+  theme: {
+    sky: '#7eb6e8',
+    fog: '#7eb6e8',
+    ground: '#58a05c',
+    asphalt: '#3b3e47',
+    dirt: '#9a8a58',
+    wallA: '#e74a4a',
+    wallB: '#f3efe6',
+    decor: 'trees',
+  },
+};
+
+/**
+ * Canyon Sprint — fast desert sweepers with sandy runoff, pinching into a
+ * tight walled hairpin. Risk the wide dirt lines or thread the asphalt.
+ */
+const CANYON_SPRINT: TrackDef = {
+  id: 'canyon-sprint',
+  name: 'Canyon Sprint',
+  verts: [
+    { x: -30, y: -60, w: 7, dirt: 6 }, // 0: start, bottom straight
+    { x: 20, y: -60, w: 7, dirt: 6 },
+    { x: 60, y: -52, w: 8, dirt: 7 },
+    { x: 90, y: -30, w: 9, dirt: 8 }, // fast right-hand sweep
+    { x: 100, y: 0, w: 9, dirt: 8 },
+    { x: 95, y: 30, w: 9, dirt: 8 },
+    { x: 75, y: 50, w: 8, dirt: 5 },
+    { x: 45, y: 56, w: 7 },
+    { x: 15, y: 50, w: 7 }, // hairpin approach
+    { x: -5, y: 30, w: 6 },
+    { x: -15, y: 5, w: 5 }, // hairpin: narrow, hard walls
+    { x: -45, y: 2, w: 5 },
+    { x: -55, y: 28, w: 6 }, // hairpin exit
+    { x: -70, y: 45, w: 7 },
+    { x: -95, y: 38, w: 7, dirt: 4 },
+    { x: -108, y: 12, w: 7, dirt: 5 }, // left sweeper, sandy runoff
+    { x: -106, y: -20, w: 7, dirt: 5 },
+    { x: -90, y: -45, w: 7, dirt: 4 },
+    { x: -60, y: -60, w: 7, dirt: 5 },
+  ],
+  checkpointVerts: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
+  itemVerts: [1, 7, 14],
+  boostPads: [
+    { vert: 12, t: 0.5 }, // hairpin exit reward
+    { vert: 1, t: 0.3 },
+    { vert: 1, t: 0.7 },
+  ],
+  spawns: [
+    [-35, -62.4, 0],
+    [-35, -57.6, 0],
+    [-39, -62.4, 0],
+    [-39, -57.6, 0],
+  ],
+  theme: {
+    sky: '#f4c98a',
+    fog: '#eebd7d',
+    ground: '#c9a55f',
+    asphalt: '#4a4038',
+    dirt: '#d9b36c',
+    wallA: '#b4502e',
+    wallB: '#e8d7b0',
+    decor: 'cacti',
+  },
+};
+
+/**
+ * Neon Gauntlet — tight night-city snake with unforgiving walls, two
+ * pinch points and boost pads that reward clean lines.
+ */
+const NEON_GAUNTLET: TrackDef = {
+  id: 'neon-gauntlet',
+  name: 'Neon Gauntlet',
+  verts: [
+    { x: -70, y: -40, w: 5.5 }, // 0
+    { x: -30, y: -40, w: 5.5 }, // 1: start (bottom straight)
+    { x: 10, y: -40, w: 5.5 },
+    { x: 40, y: -34, w: 5.5 },
+    { x: 58, y: -12, w: 5.5 },
+    { x: 50, y: 12, w: 5.5 },
+    { x: 28, y: 22, w: 4 }, // 6: pinch one
+    { x: 6, y: 14, w: 5 },
+    { x: -8, y: 28, w: 5 }, // snake back up
+    { x: 2, y: 46, w: 5 },
+    { x: 28, y: 58, w: 5.5 },
+    { x: -6, y: 64, w: 5.5 }, // top run, heading west
+    { x: -40, y: 58, w: 4.5 }, // 12: pinch two
+    { x: -64, y: 38, w: 5.5 },
+    { x: -76, y: 12, w: 5.5 },
+    { x: -76, y: -16, w: 5.5 },
+  ],
+  checkpointVerts: [1, 3, 5, 7, 9, 11, 13, 15],
+  itemVerts: [2, 9, 14],
+  boostPads: [
+    { vert: 1, t: 0.5 },
+    { vert: 4, t: 0.5 },
+    { vert: 7, t: 0.5 }, // pinch-one exit
+    { vert: 13, t: 0.5 }, // pinch-two exit
+  ],
+  spawns: [
+    [-35, -42.2, 0],
+    [-35, -37.8, 0],
+    [-39, -42.2, 0],
+    [-39, -37.8, 0],
+  ],
+  theme: {
+    sky: '#0b0e1f',
+    fog: '#141833',
+    ground: '#0d1022',
+    asphalt: '#323a5e',
+    dirt: '#1c2033',
+    wallA: '#ff2e88',
+    wallB: '#21e6c1',
+    decor: 'neon',
+    night: true,
+  },
+};
+
+/**
+ * Glacier GP — huge, wide and fast with long drift corners and deep snow
+ * margins everywhere. Hold your drift or get swallowed by the powder.
+ */
+const GLACIER_GP: TrackDef = {
+  id: 'glacier-gp',
+  name: 'Glacier GP',
+  verts: [
+    { x: -40, y: -70, w: 9, dirt: 7 }, // 0: start
+    { x: 10, y: -70, w: 9, dirt: 7 },
+    { x: 55, y: -62, w: 9, dirt: 7 },
+    { x: 90, y: -40, w: 9, dirt: 7 },
+    { x: 105, y: -5, w: 9, dirt: 7 },
+    { x: 95, y: 30, w: 9, dirt: 7 },
+    { x: 70, y: 52, w: 9, dirt: 7 },
+    { x: 38, y: 60, w: 8, dirt: 6 },
+    { x: 5, y: 55, w: 8, dirt: 6 }, // gentle waist
+    { x: -28, y: 58, w: 8, dirt: 6 },
+    { x: -60, y: 52, w: 9, dirt: 7 },
+    { x: -88, y: 32, w: 9, dirt: 7 },
+    { x: -100, y: 0, w: 9, dirt: 7 },
+    { x: -95, y: -32, w: 9, dirt: 7 },
+    { x: -85, y: -50, w: 9, dirt: 7 },
+    { x: -70, y: -70, w: 9, dirt: 7 },
+  ],
+  checkpointVerts: [0, 2, 4, 6, 8, 10, 12, 14],
+  itemVerts: [1, 7, 12],
+  boostPads: [{ vert: 9, t: 0.5 }],
+  spawns: [
+    [-45, -72.4, 0],
+    [-45, -67.6, 0],
+    [-49, -72.4, 0],
+    [-49, -67.6, 0],
+  ],
+  theme: {
+    sky: '#cfe3f5',
+    fog: '#dbe9f7',
+    ground: '#eef4fb',
+    asphalt: '#46505e',
+    dirt: '#f7fafd',
+    wallA: '#3a76c4',
+    wallB: '#ffffff',
+    decor: 'snow',
+  },
+};
+
+export const TRACK_DEFS: readonly TrackDef[] = [
+  SUNNY_CIRCUIT,
+  CANYON_SPRINT,
+  NEON_GAUNTLET,
+  GLACIER_GP,
+];
