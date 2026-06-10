@@ -5,6 +5,10 @@ import {
   COUNTDOWN_TICKS,
   DRIFT_TIER1_TICKS,
   DRIFT_TIER2_TICKS,
+  ITEM_NONE,
+  ITEM_BOOST,
+  ITEM_SHELL,
+  ITEM_OIL,
   TRACKS,
   getTrack,
 } from '@mk/sim';
@@ -389,6 +393,15 @@ function updateHud(): void {
   fill.style.background =
     me.driftCharge >= DRIFT_TIER2_TICKS ? '#ff9b2f' : me.driftCharge >= DRIFT_TIER1_TICKS ? '#5ee1ff' : '#8b93a7';
   $('hud-boost').classList.toggle('hidden', me.boostTicks <= 0);
+
+  const itemEl = $('hud-item');
+  itemEl.classList.toggle('hidden', me.heldItem === ITEM_NONE);
+  if (me.heldItem !== ITEM_NONE) {
+    const icon =
+      me.heldItem === ITEM_BOOST ? '🚀' : me.heldItem === ITEM_SHELL ? '🐢' : me.heldItem === ITEM_OIL ? '🛢️' : '❔';
+    const iconEl = $('hud-item-icon');
+    if (iconEl.textContent !== icon) iconEl.textContent = icon;
+  }
 
   const cd = $('hud-countdown');
   if (st.phase === PHASE_COUNTDOWN) {

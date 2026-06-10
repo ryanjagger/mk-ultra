@@ -9,6 +9,11 @@ import {
   getTrack,
   fxToFloat,
   isItemActive,
+  MAX_SHELLS,
+  MAX_OILS,
+  SHELL_RADIUS,
+  OIL_RADIUS,
+  SPIN_OUT_TICKS,
   type GameState,
   type TrackRuntime,
   type Vec2Fx,
@@ -197,6 +202,8 @@ export class GameScene {
   private itemWasActive: boolean[] = [];
   private itemPop: number[] = [];
   private padMeshes: THREE.Mesh[] = [];
+  private shellMeshes: THREE.Mesh[] = [];
+  private oilMeshes: THREE.Mesh[] = [];
 
   private orbit = { cx: 0, cz: 0, radius: 95, height: 42 };
   private idleAngle = 0;
@@ -213,6 +220,39 @@ export class GameScene {
     this.sun = new THREE.DirectionalLight('#fff3d6', 1.6);
     this.sun.position.set(60, 90, 40);
     this.scene.add(this.sun);
+
+    // projectile/hazard pools live outside the swappable world group
+    const shellMat = new THREE.MeshStandardMaterial({ color: '#3fd06b', roughness: 0.35, metalness: 0.2 });
+    const shellRimMat = new THREE.MeshStandardMaterial({ color: '#f4f7ef', roughness: 0.6 });
+    for (let i = 0; i < MAX_SHELLS; i++) {
+      const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(fxToFloat(SHELL_RADIUS), 14, 10),
+        shellMat,
+      );
+      const rim = new THREE.Mesh(
+        new THREE.SphereGeometry(fxToFloat(SHELL_RADIUS) * 0.92, 14, 10, 0, Math.PI * 2, Math.PI * 0.62, Math.PI * 0.38),
+        shellRimMat,
+      );
+      shell.add(rim);
+      shell.visible = false;
+      this.shellMeshes.push(shell);
+      this.scene.add(shell);
+    }
+    for (let i = 0; i < MAX_OILS; i++) {
+      // per-mesh material: opacity animates independently per slick
+      const oilMat = new THREE.MeshStandardMaterial({
+        color: '#14161c',
+        roughness: 0.25,
+        metalness: 0.4,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const oil = new THREE.Mesh(new THREE.CircleGeometry(fxToFloat(OIL_RADIUS), 18), oilMat);
+      oil.rotation.x = -Math.PI / 2;
+      oil.visible = false;
+      this.oilMeshes.push(oil);
+      this.scene.add(oil);
+    }
 
     this.setTrack(getTrack(undefined));
     this.resize();
@@ -528,7 +568,10 @@ export class GameScene {
       const v = this.karts[i];
       if (!v) return;
       v.group.position.set(k.x, 0, k.z);
-      v.group.rotation.y = k.headingRad;
+      // spin-out: two full visual turns over the spin duration
+      const spinYaw =
+        k.spinTicks > 0 ? ((SPIN_OUT_TICKS - k.spinTicks) / SPIN_OUT_TICKS) * Math.PI * 4 : 0;
+      v.group.rotation.y = k.headingRad + spinYaw;
       v.flame.visible = k.boosting;
       if (k.boosting) {
         const s = 0.85 + Math.random() * 0.5;
@@ -547,6 +590,7 @@ export class GameScene {
 
     this.updateItems(state, dt);
     this.updatePads();
+    this.updateProjectiles(state);
 
     // chase camera on the local kart
     const me = karts[localIdx];
@@ -571,6 +615,26 @@ export class GameScene {
       }
     }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private updateProjectiles(state: GameState | null): void {
+    this.shellMeshes.forEach((mesh, i) => {
+      const s = state?.shells[i];
+      mesh.visible = !!s && s.ttl > 0;
+      if (s && s.ttl > 0) {
+        mesh.position.set(fxToFloat(s.x), fxToFloat(SHELL_RADIUS), -fxToFloat(s.y));
+        mesh.rotation.y = this.t * 9; // menacing wobble-spin
+      }
+    });
+    this.oilMeshes.forEach((mesh, i) => {
+      const o = state?.oils[i];
+      mesh.visible = !!o && o.ttl > 0;
+      if (o && o.ttl > 0) {
+        mesh.position.set(fxToFloat(o.x), 0.03, -fxToFloat(o.y));
+        const m = mesh.material as THREE.MeshStandardMaterial;
+        m.opacity = Math.min(0.9, o.ttl / 90); // fade out as it expires
+      }
+    });
   }
 
   private updatePads(): void {
@@ -613,6 +677,7 @@ export class GameScene {
     }
     this.updateItems(null, dt);
     this.updatePads();
+    this.updateProjectiles(null);
     this.renderer.render(this.scene, this.camera);
   }
 

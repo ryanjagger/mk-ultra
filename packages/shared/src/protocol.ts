@@ -16,7 +16,7 @@ export const HASH_INTERVAL = 30;
 const name = z.string().min(1).max(MAX_NAME_LEN);
 const roomCode = z.string().length(ROOM_CODE_LEN);
 const frame = z.number().int().min(0).max(MAX_FRAME);
-const inputMask = z.number().int().min(0).max(31);
+const inputMask = z.number().int().min(0).max(63); // @mk/sim INPUT_MASK_ALL
 const hash32 = z.number().int().min(0).max(0xffffffff);
 /**
  * Track id, or 'random'. Shared cannot depend on the sim registry, so this is

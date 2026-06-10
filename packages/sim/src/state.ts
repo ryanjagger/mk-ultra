@@ -17,6 +17,9 @@ export const PHASE_COUNTDOWN = 0;
 export const PHASE_RACING = 1;
 export const PHASE_FINISHED = 2;
 
+/** KartState.heldItem when empty-handed. Item types live in items.ts. */
+export const ITEM_NONE = -1;
+
 /** Ticks after the first finisher before stragglers are cut off. */
 export const STRAGGLER_TICKS = 45 * TICK_RATE;
 /** Absolute cap on race length. */
@@ -42,7 +45,30 @@ export interface KartState {
   nextCp: number; // gate index that counts next (0 = finish line)
   lap: number; // 1-based; lapCount+1 => finished
   finishTick: number; // -1 until finished
+  heldItem: number; // ITEM_NONE or an ITEM_* type (items.ts)
+  spinTicks: number; // spin-out remaining; controls locked while > 0
 }
+
+/** Fired shell. Slot is live while ttl > 0; pool length is always MAX_SHELLS. */
+export interface ShellState {
+  ttl: number;
+  x: Fx;
+  y: Fx;
+  vx: Fx;
+  vy: Fx;
+  owner: number; // kart index that fired it
+  bounces: number;
+}
+
+/** Dropped oil slick. Slot is live while ttl > 0; pool length is always MAX_OILS. */
+export interface OilState {
+  ttl: number;
+  x: Fx;
+  y: Fx;
+}
+
+export const MAX_SHELLS = 8; // 4 players x 2 in flight (pickup cadence < shell ttl)
+export const MAX_OILS = 12;
 
 export interface GameState {
   readonly cfg: RaceConfig; // static per race — not part of snapshots
@@ -54,13 +80,20 @@ export interface GameState {
   karts: KartState[]; // length cfg.playerCount
   /** Per item spawn: tick at which it is (re)active. Active when tick >= value. */
   items: number[];
+  shells: ShellState[]; // fixed length MAX_SHELLS
+  oils: OilState[]; // fixed length MAX_OILS
 }
 
-const KART_INTS = 11;
+const KART_INTS = 13;
 const GLOBAL_INTS = 4;
+const SHELL_INTS = 7;
+const OIL_INTS = 3;
+const POOL_INTS = MAX_SHELLS * SHELL_INTS + MAX_OILS * OIL_INTS;
 
 export function snapshotInts(cfg: RaceConfig): number {
-  return GLOBAL_INTS + cfg.playerCount * KART_INTS + getTrack(cfg.trackId).itemSpawns.length;
+  return (
+    GLOBAL_INTS + cfg.playerCount * KART_INTS + getTrack(cfg.trackId).itemSpawns.length + POOL_INTS
+  );
 }
 
 export function createGameState(cfg: RaceConfig): GameState {
@@ -85,7 +118,18 @@ export function createGameState(cfg: RaceConfig): GameState {
       nextCp: 1,
       lap: 1,
       finishTick: -1,
+      heldItem: ITEM_NONE,
+      spinTicks: 0,
     });
+  }
+
+  const shells: ShellState[] = [];
+  for (let i = 0; i < MAX_SHELLS; i++) {
+    shells.push({ ttl: 0, x: 0, y: 0, vx: 0, vy: 0, owner: 0, bounces: 0 });
+  }
+  const oils: OilState[] = [];
+  for (let i = 0; i < MAX_OILS; i++) {
+    oils.push({ ttl: 0, x: 0, y: 0 });
   }
 
   return {
@@ -97,6 +141,8 @@ export function createGameState(cfg: RaceConfig): GameState {
     endTick: -1,
     karts,
     items: track.itemSpawns.map(() => 0),
+    shells,
+    oils,
   };
 }
 
@@ -118,8 +164,24 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = k.nextCp;
     out[i++] = k.lap;
     out[i++] = k.finishTick;
+    out[i++] = k.heldItem;
+    out[i++] = k.spinTicks;
   }
   for (let j = 0; j < st.items.length; j++) out[i++] = st.items[j]!;
+  for (const s of st.shells) {
+    out[i++] = s.ttl;
+    out[i++] = s.x;
+    out[i++] = s.y;
+    out[i++] = s.vx;
+    out[i++] = s.vy;
+    out[i++] = s.owner;
+    out[i++] = s.bounces;
+  }
+  for (const o of st.oils) {
+    out[i++] = o.ttl;
+    out[i++] = o.x;
+    out[i++] = o.y;
+  }
 }
 
 export function readSnapshot(st: GameState, arr: Int32Array): void {
@@ -140,8 +202,24 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     k.nextCp = arr[i++]!;
     k.lap = arr[i++]!;
     k.finishTick = arr[i++]!;
+    k.heldItem = arr[i++]!;
+    k.spinTicks = arr[i++]!;
   }
   for (let j = 0; j < st.items.length; j++) st.items[j] = arr[i++]!;
+  for (const s of st.shells) {
+    s.ttl = arr[i++]!;
+    s.x = arr[i++]!;
+    s.y = arr[i++]!;
+    s.vx = arr[i++]!;
+    s.vy = arr[i++]!;
+    s.owner = arr[i++]!;
+    s.bounces = arr[i++]!;
+  }
+  for (const o of st.oils) {
+    o.ttl = arr[i++]!;
+    o.x = arr[i++]!;
+    o.y = arr[i++]!;
+  }
 }
 
 /** FNV-1a (32-bit) over the snapshot ints, byte by byte. */
@@ -159,7 +237,7 @@ export function hashSnapshot(a: Int32Array): number {
 
 // sized for the largest registered track so hashState never overflows
 const MAX_ITEM_SPAWNS = TRACKS.reduce((m, t) => (t.itemSpawns.length > m ? t.itemSpawns.length : m), 0);
-const scratch = new Int32Array(GLOBAL_INTS + MAX_PLAYERS * KART_INTS + MAX_ITEM_SPAWNS);
+const scratch = new Int32Array(GLOBAL_INTS + MAX_PLAYERS * KART_INTS + MAX_ITEM_SPAWNS + POOL_INTS);
 
 export function hashState(st: GameState): number {
   const view = scratch.subarray(0, snapshotInts(st.cfg));

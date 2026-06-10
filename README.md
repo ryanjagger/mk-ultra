@@ -90,10 +90,10 @@ The sim package must obey all of these — enforced mechanically by
 7. **Magnitude contract:** world coords stay within ±400 units so wide
    integer products stay below 2^53 and are exact in doubles (positions are
    clamped to this).
-8. **Fixed evaluation order** inside a tick: karts by index → kart pairs
-   (i<j) → walls by index → boost pads (kart-major, pads by index) →
-   checkpoints → items → phase. PRNG consumption order is part of the
-   protocol.
+8. **Fixed evaluation order** inside a tick: karts by index (item use, then
+   physics) → kart pairs (i<j) → walls by index → boost pads (kart-major,
+   pads by index) → checkpoints → item pickups → shells → oil slicks →
+   phase. PRNG consumption order is part of the protocol.
 9. **Snapshot completeness:** every mutable sim variable lives in the
    fixed-layout `Int32Array` snapshot (if it isn't snapshotted, it doesn't
    exist). Save/restore is a flat copy; hashes are FNV-1a over those bytes.
@@ -113,8 +113,8 @@ The sim package must obey all of these — enforced mechanically by
   (central hash check), one socket per client, no STUN/TURN. The relay hop
   latency is exactly what rollback hides. WebTransport is the upgrade path
   if TCP head-of-line blocking ever bites.
-- **Input:** keyboard only (v1); input frames are 5-bit masks, so gamepad is
-  just another mask source later.
+- **Input:** keyboard only (v1); input frames are 6-bit masks (drive bits +
+  BTN_ITEM), so gamepad is just another mask source later.
 - **Laps:** 3 by default, configurable 1–9 in room creation.
 
 ## Milestone verification map
@@ -127,7 +127,7 @@ The sim package must obey all of these — enforced mechanically by
 | M4 rollback | `sim/test/rollback.test.ts` (delayed/reordered → oracle-identical hashes, stalls, drops) |
 | M5 two players | `server/test/integration.test.ts` (real WS server, bit-identical finish, induced desync detected with frame number) |
 | M6 four players + race structure | 4-player jitter test + bot race placements + lobby/rooms/countdown/results in client |
-| M7 items | deterministic PRNG-jittered respawns; covered by the determinism gate (seeds diverge) |
+| M7 items | `sim/test/items.test.ts` (mystery boxes, placement-weighted rolls, shells, oil slicks, spin-outs) + PRNG-jittered respawns covered by the determinism gate |
 
 ## Deploy
 

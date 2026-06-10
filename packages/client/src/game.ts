@@ -30,6 +30,7 @@ export interface KartRender {
   boosting: boolean;
   driftDir: number;
   driftCharge: number;
+  spinTicks: number;
   finished: boolean;
 }
 
@@ -55,6 +56,7 @@ function snapshotKarts(state: GameState): KartRender[] {
     boosting: k.boostTicks > 0,
     driftDir: k.driftDir,
     driftCharge: k.driftCharge,
+    spinTicks: k.spinTicks,
     finished: k.finishTick >= 0,
   }));
 }
@@ -210,6 +212,7 @@ export class RaceController {
       v.boosting = c.boosting;
       v.driftDir = c.driftDir;
       v.driftCharge = c.driftCharge;
+      v.spinTicks = c.spinTicks;
       v.finished = c.finished;
     }
     return this.visualKarts;

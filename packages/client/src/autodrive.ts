@@ -15,12 +15,23 @@ import {
   BTN_LEFT,
   BTN_RIGHT,
   BTN_DRIFT,
+  BTN_ITEM,
+  ITEM_NONE,
   type GameState,
 } from '@mk/sim';
 
 export function botMask(st: GameState, k: number): number {
   const kart = st.karts[k];
   if (!kart || kart.finishTick >= 0) return 0;
+  // fire whatever we're holding shortly after pickup (cheap but lively)
+  if (kart.heldItem !== ITEM_NONE && st.tick % 45 === 0) {
+    return botSteer(st, k) | BTN_ITEM;
+  }
+  return botSteer(st, k);
+}
+
+function botSteer(st: GameState, k: number): number {
+  const kart = st.karts[k]!;
   const g = st.track.gates[kart.nextCp]!;
   const fwdX = cosB(kart.heading);
   const fwdY = sinB(kart.heading);

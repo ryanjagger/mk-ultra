@@ -33,7 +33,7 @@ This is a rollback-netcode game: every client simulates the same race and must s
 Practical consequences when touching sim code:
 
 - All mutable state lives in the fixed-layout `Int32Array` snapshot (`state.ts` write/read/hash). If you add a state field and don't snapshot it, rollback silently corrupts — "if it isn't snapshotted, it doesn't exist."
-- The per-tick evaluation order in `sim.ts` (karts by index → kart pairs i<j → walls → boost pads → checkpoints → items → phase) and the PRNG consumption order are part of the protocol. Changing them is a sim change, not a refactor.
+- The per-tick evaluation order in `sim.ts` (karts by index, item use then physics → kart pairs i<j → walls → boost pads → checkpoints → item pickups → shells → oil slicks → phase) and the PRNG consumption order are part of the protocol. Changing them is a sim change, not a refactor.
 - `fxConst()` is for compile-time numeric literals only, never runtime data. Render code converts with `fxToFloat()` and never feeds floats back.
 - Wide integer math (`wideDot`/`wideCross`, raw products) is exact only because world coords are clamped to ±400 units (< 2^26 raw). Keep track geometry inside that bound.
 - The M2/M4 gates (`determinism.test.ts`, `rollback.test.ts`) are hard gates; they run headless in Node, which is the cross-platform claim.

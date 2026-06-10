@@ -116,7 +116,8 @@ describe.each(TRACKS.map((t) => [t.def.id, t] as [string, TrackRuntime]))(
       const cfg = { seed: 1, lapCount: 3, playerCount: 4, trackId: track.def.id };
       const st = createGameState(cfg);
       expect(st.items.length).toBe(track.itemSpawns.length);
-      expect(snapshotInts(cfg)).toBe(4 + 4 * 11 + track.itemSpawns.length);
+      // globals + karts + boxes + shell pool (8x7) + oil pool (12x3)
+      expect(snapshotInts(cfg)).toBe(4 + 4 * 13 + track.itemSpawns.length + 8 * 7 + 12 * 3);
       expect(hashState(st)).toBeGreaterThan(0);
     });
   },

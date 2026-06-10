@@ -100,10 +100,10 @@ export interface Gate {
   ny: Fx;
 }
 
+/** A mystery item box; what it grants is rolled on pickup (see items.ts). */
 export interface ItemSpawn {
   x: Fx;
   y: Fx;
-  itemType: number; // 0 = speed boost (the only v1 type; see items.ts)
 }
 
 export interface BoostPad {
@@ -226,7 +226,6 @@ export function buildTrack(def: TrackDef): TrackRuntime {
       itemSpawns.push({
         x: add(a.x, mul(sub(b.x, a.x), tQ)),
         y: add(a.y, mul(sub(b.y, a.y), tQ)),
-        itemType: 0,
       });
     }
   }

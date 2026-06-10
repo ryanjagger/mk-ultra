@@ -1,4 +1,4 @@
-import { BTN_ACCEL, BTN_BRAKE, BTN_LEFT, BTN_RIGHT, BTN_DRIFT } from '@mk/sim';
+import { BTN_ACCEL, BTN_BRAKE, BTN_LEFT, BTN_RIGHT, BTN_DRIFT, BTN_ITEM } from '@mk/sim';
 
 const KEYMAP: Record<string, number> = {
   ArrowUp: BTN_ACCEL,
@@ -12,6 +12,10 @@ const KEYMAP: Record<string, number> = {
   Space: BTN_DRIFT,
   ShiftLeft: BTN_DRIFT,
   ShiftRight: BTN_DRIFT,
+  KeyE: BTN_ITEM,
+  Enter: BTN_ITEM,
+  ControlLeft: BTN_ITEM,
+  ControlRight: BTN_ITEM,
 };
 
 export class Keyboard {

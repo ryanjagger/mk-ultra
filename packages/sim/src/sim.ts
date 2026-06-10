@@ -1,16 +1,17 @@
 /**
  * One sim tick. Everything in here runs in a strict fixed order:
- * karts step (by index) -> kart collisions (i<j) -> wall collisions (by index)
- * -> boost pads (kart-major, pads by index) -> checkpoints -> items
+ * karts step (item use then physics, by index) -> kart collisions (i<j)
+ * -> wall collisions (by index) -> boost pads (kart-major, pads by index)
+ * -> checkpoints -> item pickups -> shells -> oil slicks
  * -> phase transition -> tick++.
  *
  * The world freezes once the race is over so the results screen is stable.
  */
 import { sub, wideDot, wideCross } from './fixed.js';
-import { INPUT_NEUTRAL } from './input.js';
+import { BTN_ITEM, INPUT_NEUTRAL } from './input.js';
 import { stepKart, collideKarts, collideWalls } from './physics.js';
 import { stepCheckpoints, stepRacePhase } from './race.js';
-import { stepItems } from './items.js';
+import { stepItems, stepShells, stepOils, useHeldItem } from './items.js';
 import {
   type GameState,
   PHASE_COUNTDOWN,
@@ -68,6 +69,7 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
     prevY.push(kart.y);
     const mask =
       st.phase === PHASE_RACING && kart.finishTick < 0 ? (inputs[i] ?? INPUT_NEUTRAL) : INPUT_NEUTRAL;
+    if ((mask & BTN_ITEM) !== 0 && kart.spinTicks === 0) useHeldItem(st, i);
     stepKart(st, kart, mask);
   }
 
@@ -80,6 +82,8 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
       stepCheckpoints(st, st.karts[i]!, prevX[i]!, prevY[i]!);
     }
     stepItems(st);
+    stepShells(st);
+    stepOils(st);
   }
 
   stepRacePhase(st);

@@ -22,7 +22,7 @@ import {
   wideDot,
 } from './fixed.js';
 import { sinB, cosB } from './trig.js';
-import { BTN_ACCEL, BTN_BRAKE, BTN_DRIFT, steerOf } from './input.js';
+import { BTN_ACCEL, BTN_BRAKE, BTN_DRIFT, INPUT_NEUTRAL, steerOf } from './input.js';
 import type { GameState, KartState } from './state.js';
 import { KART_RADIUS, clampWorld, type WallSeg, type TrackRuntime } from './track.js';
 
@@ -51,6 +51,8 @@ const DRIFT_BOOST1 = 55;
 const DRIFT_BOOST2 = 110;
 export const BOOST_CAP = 240;
 const DRIFT_CHARGE_CAP = 300;
+
+const SPIN_DRAG: Fx = fxConst(0.93); // extra forward decay per tick while spun out
 
 const WALL_BOUNCE: Fx = fxConst(1.25); // 1 + restitution
 const WALL_FRICTION: Fx = fxConst(0.96);
@@ -90,6 +92,12 @@ export function onDirt(track: TrackRuntime, x: Fx, y: Fx): boolean {
 }
 
 export function stepKart(st: GameState, kart: KartState, mask: number): void {
+  // spun out: controls are locked, the kart coasts with extra drag
+  const spinning = kart.spinTicks > 0;
+  if (spinning) {
+    kart.spinTicks -= 1;
+    mask = INPUT_NEUTRAL;
+  }
   const steer = steerOf(mask);
 
   // forward speed along current heading
@@ -158,6 +166,7 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   const grip = kart.driftDir !== 0 ? LAT_GRIP_DRIFT : offRoad ? LAT_GRIP_DIRT : LAT_GRIP;
 
   vf = mul(vf, ROLL_RESIST);
+  if (spinning) vf = mul(vf, SPIN_DRAG);
   if (offRoad) {
     vf = mul(vf, DIRT_DRAG);
     if (vf > DIRT_CAP) vf = max(DIRT_CAP, sub(vf, DIRT_BLEED));

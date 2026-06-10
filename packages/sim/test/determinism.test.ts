@@ -29,6 +29,8 @@ import {
   BTN_RIGHT,
   BTN_DRIFT,
   BTN_BRAKE,
+  BTN_ITEM,
+  ITEM_NONE,
   rngNextState,
   rngValue,
 } from '../src/index.js';
@@ -47,7 +49,8 @@ function chaosInputs(seed: number, players: number, frames: number): number[][] 
       const v = rngValue(s);
       if (v % 7 === 0) {
         // re-roll the held mask every so often, like a human mashing keys
-        mask = (v >>> 8) & 31;
+        // (includes BTN_ITEM, so pickups/shells/oils/spin-outs get exercised)
+        mask = (v >>> 8) & 63;
       }
       row.push(mask);
     }
@@ -78,6 +81,8 @@ function botInput(st: GameState, k: number): number {
   if (dotV > 0 && (crossV > dotV || -crossV > dotV)) mask |= BTN_DRIFT;
   // target behind: slow down while turning
   if (dotV < 0) mask = (mask & ~BTN_ACCEL) | BTN_BRAKE;
+  // fire held items so full-race runs exercise shells/oils/spin-outs
+  if (kart.heldItem !== ITEM_NONE && st.tick % 45 === 0) mask |= BTN_ITEM;
   return mask;
 }
 
