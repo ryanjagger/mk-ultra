@@ -72,6 +72,15 @@ packages/client  Vite + Three.js. Renderer READS sim state only. RaceController
 - `server/test/integration.test.ts` runs real WebSocket clients (headless `RollbackSession`s) against the actual server — use its `TestClient` as the template for new protocol tests.
 - Bit-identity across refactors: capture a golden hash before (run a chaos sim, log `hashState`), compare after. Run-vs-run determinism is already covered by the suite; version-vs-version is not, so server+client must always deploy together (they do — single container).
 
+## BrainLift (learning log)
+
+`BRAINLIFT.md` is a daily learning log: per-day entries with **Progress**,
+**AI interactions that accelerated learning**, and **Challenges → solutions**.
+At the end of a working session (or when the user asks), update today's entry
+via the `/brainlift` command — anchor Progress to real commits, write
+root-cause (not symptom) for challenges, and never pad. Bug hunts with a
+non-obvious root cause (e.g. the shell wall-tunneling fix) belong here.
+
 ## Commit Conventions
 
 - Use Conventional Commits: `<type>(<scope>): <subject>`
