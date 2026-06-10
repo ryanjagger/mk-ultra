@@ -34,6 +34,15 @@ padded one.
 
 ### AI interactions that accelerated learning
 
+- **Reproduce the player, not the test.** "Kart goes through the gold cube"
+  reproduced nowhere in the test suite — pickups passed at every level. The
+  unlock was driving the real client with synthesized `KeyboardEvent`s (the
+  exact human input path) and watching live sim state: the kart *was*
+  picking up. The first screenshot then told the story instantly — the kart
+  was already holding 🚀, so every later box was a correct pass-through that
+  *looked* broken. Lesson: when "X doesn't work" survives passing tests,
+  reproduce the user's perception, not the mechanic.
+
 - **Asking for enforcement, not discipline.** The determinism rules
   (no floats, no `Math.sin`, no `Map`/`Set`, fixed iteration order) became a
   lint *test* that scans sim sources for banned constructs. One prompt about
@@ -57,6 +66,15 @@ padded one.
   without touching logic.
 
 ### Challenges → solutions
+
+- **"Item boxes are broken" — but they weren't.** Pickups worked; there was
+  zero feedback. The box vanished silently *behind* the kart at speed, and
+  driving through a box while already holding an item (correct can't-carry-two
+  rule) looked identical to a bug. Fix was all presentation (`27163b7`):
+  box-break shard burst at the pickup point, a slot-machine roulette on the
+  HUD badge at acquisition, and a badge bump when passing boxes full-handed.
+  Lesson: a mechanic without feedback reads as a defect — silence is a bug
+  report waiting to happen.
 
 - **Cross-engine float drift would desync everything.** Rollback netcode
   needs bit-identical sims on every machine. Solution: hand-rolled Q16.16
