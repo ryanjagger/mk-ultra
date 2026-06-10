@@ -19,6 +19,12 @@ padded one.
 
 ### Progress
 
+- Audio: fully synthesized Web Audio engine (`client/src/audio.ts`) — engine
+  pitch tracks speed, drift squeal scales with charge, one-shot synths for
+  pickups, boosts, drift tiers, shells (fire/bounce), oil drops, spin-outs,
+  countdown and finish fanfare. Distance-attenuated for remote events,
+  mute on M with persistence, ducked in hidden tabs. No asset files; the
+  whole soundscape is oscillators and filtered noise.
 - Full v1 shipped in one arc: pnpm monorepo scaffold → deterministic Q16.16
   sim core → Zod wire protocol → WebSocket input-relay server with desync
   detection → Three.js client with rollback netcode → CI gates → Docker →
@@ -34,6 +40,11 @@ padded one.
 
 ### AI interactions that accelerated learning
 
+- **One-shots from state diffs, not callbacks.** The audio engine needed no
+  hooks in the sim or netcode: it diffs the previous frame's state (held
+  items, boost ticks, shell ttls) and plays sounds on transitions — the same
+  read-only pattern the renderer uses. Rollback corrections just work; a
+  re-simulated pickup is still a transition.
 - **Reproduce the player, not the test.** "Kart goes through the gold cube"
   reproduced nowhere in the test suite — pickups passed at every level. The
   unlock was driving the real client with synthesized `KeyboardEvent`s (the

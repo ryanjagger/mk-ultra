@@ -19,6 +19,7 @@ import { ClockSync } from './clock.js';
 import { Keyboard } from './keyboard.js';
 import { RaceController } from './game.js';
 import { GameScene, KART_COLORS } from './scene.js';
+import { AudioEngine } from './audio.js';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -33,6 +34,11 @@ const clock = new ClockSync();
 const keyboard = new Keyboard();
 const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
 scene.setupIdleKarts();
+
+const audio = new AudioEngine();
+window.addEventListener('pointerdown', () => audio.unlock());
+window.addEventListener('keydown', () => audio.unlock());
+document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
 
 type Screen = 'home' | 'lobby' | 'race' | 'results';
 let screen: Screen = 'home';
@@ -275,6 +281,7 @@ net.on('raceStart', (msg) => {
   );
   // debug hook for E2E tests and console poking (read-only by convention)
   (window as { __mk?: unknown }).__mk = { controller };
+  audio.reset();
   resultsShown = false;
   stallSince = null;
   $('hud-desync').classList.add('hidden');
@@ -308,6 +315,21 @@ window.setInterval(() => {
 keyboard.onDebugToggle = () => {
   debugVisible = !debugVisible;
   $('hud-debug').classList.toggle('hidden', !debugVisible);
+};
+
+const muteBtn = $('hud-mute');
+function renderMute(): void {
+  muteBtn.textContent = audio.muted ? '🔇' : '🔊';
+  muteBtn.title = audio.muted ? 'Unmute (M)' : 'Mute (M)';
+}
+renderMute();
+muteBtn.addEventListener('click', () => {
+  audio.toggleMute();
+  renderMute();
+});
+keyboard.onMuteToggle = () => {
+  audio.toggleMute();
+  renderMute();
 };
 
 // ----------------------------------------------------------- results ----
@@ -480,6 +502,7 @@ function frame(now: number): void {
     controller.update();
     const karts = controller.renderKarts(dt);
     scene.updateRace(karts, controller.state, controller.you, dt);
+    audio.update(controller);
     updateHud();
     if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
       resultsShown = true;

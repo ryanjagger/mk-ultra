@@ -23,12 +23,20 @@ export class Keyboard {
   /** swallow game keys (avoid page scroll) only while racing */
   captureGameKeys = false;
   onDebugToggle: (() => void) | null = null;
+  onMuteToggle: (() => void) | null = null;
 
   constructor() {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'F3') {
         e.preventDefault();
         this.onDebugToggle?.();
+        return;
+      }
+      if (e.code === 'KeyM') {
+        const target = e.target as HTMLElement | null;
+        if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) {
+          this.onMuteToggle?.();
+        }
         return;
       }
       const bit = KEYMAP[e.code];
