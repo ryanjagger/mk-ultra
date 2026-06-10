@@ -1,0 +1,17 @@
+{
+  "name": "mk-ultra",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "dev": "pnpm --filter @mk/server dev & pnpm --filter @mk/client dev",
+    "start": "node packages/server/dist/index.cjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "packageManager": "pnpm@11.1.3"
+}
