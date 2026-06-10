@@ -1,0 +1,451 @@
+import './style.css';
+import {
+  PHASE_FINISHED,
+  PHASE_COUNTDOWN,
+  COUNTDOWN_TICKS,
+  DRIFT_TIER1_TICKS,
+  DRIFT_TIER2_TICKS,
+  TRACKS,
+  getTrack,
+} from '@mk/sim';
+import { RANDOM_TRACK, type ServerMsg } from '@mk/shared';
+import { Net } from './net.js';
+import { ClockSync } from './clock.js';
+import { Keyboard } from './keyboard.js';
+import { RaceController } from './game.js';
+import { GameScene, KART_COLORS } from './scene.js';
+
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing #${id}`);
+  return el as T;
+};
+
+// ------------------------------------------------------------- setup ----
+
+const net = new Net();
+const clock = new ClockSync();
+const keyboard = new Keyboard();
+const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
+scene.setupIdleKarts();
+
+type Screen = 'home' | 'lobby' | 'race' | 'results';
+let screen: Screen = 'home';
+let controller: RaceController | null = null;
+let lastRoom: Extract<ServerMsg, { t: 'room' }> | null = null;
+let resultsShown = false;
+let stallSince: number | null = null;
+let debugVisible = false;
+let toastTimer = 0;
+
+const screens = {
+  home: $('screen-home'),
+  lobby: $('screen-lobby'),
+  results: $('screen-results'),
+};
+const hud = $('hud');
+const overlayDisconnect = $('overlay-disconnect');
+
+function showScreen(next: Screen): void {
+  screen = next;
+  screens.home.classList.toggle('hidden', next !== 'home');
+  screens.lobby.classList.toggle('hidden', next !== 'lobby');
+  screens.results.classList.toggle('hidden', next !== 'results');
+  hud.classList.toggle('hidden', next !== 'race' && next !== 'results');
+  keyboard.captureGameKeys = next === 'race';
+  if (next === 'home') {
+    net.send({ t: 'listRooms' });
+  }
+}
+
+function toast(text: string): void {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// -------------------------------------------------------------- home ----
+
+const nameInput = $<HTMLInputElement>('name-input');
+nameInput.value = localStorage.getItem('mk-name') ?? '';
+
+function trackName(id: string): string {
+  if (id === RANDOM_TRACK) return '🎲 Random';
+  for (const t of TRACKS) if (t.def.id === id) return t.def.name;
+  return id;
+}
+
+function fillTrackSelect(sel: HTMLSelectElement): void {
+  sel.innerHTML = '';
+  const rand = document.createElement('option');
+  rand.value = RANDOM_TRACK;
+  rand.textContent = '🎲 Random';
+  sel.appendChild(rand);
+  for (const t of TRACKS) {
+    const opt = document.createElement('option');
+    opt.value = t.def.id;
+    opt.textContent = t.def.name;
+    sel.appendChild(opt);
+  }
+}
+const createTrackSel = $<HTMLSelectElement>('create-track');
+const lobbyTrackSel = $<HTMLSelectElement>('lobby-track');
+fillTrackSelect(createTrackSel);
+fillTrackSelect(lobbyTrackSel);
+
+/** Show a track as the menu backdrop (parks demo karts on its grid). */
+function showBackdrop(trackChoice: string): void {
+  const runtime = getTrack(trackChoice === RANDOM_TRACK ? undefined : trackChoice);
+  if (scene.currentTrackId !== runtime.def.id) {
+    scene.setTrack(runtime);
+    scene.setupIdleKarts();
+  }
+}
+
+function playerName(): string {
+  const n = nameInput.value.trim().slice(0, 16) || 'Racer';
+  localStorage.setItem('mk-name', n);
+  return n;
+}
+
+$('btn-quick').addEventListener('click', () => net.send({ t: 'quickPlay', name: playerName() }));
+$('btn-create').addEventListener('click', () =>
+  net.send({
+    t: 'createRoom',
+    name: playerName(),
+    isPublic: $<HTMLInputElement>('create-public').checked,
+    laps: Number($<HTMLSelectElement>('create-laps').value),
+    track: createTrackSel.value,
+  }),
+);
+const joinCode = $<HTMLInputElement>('join-code');
+const tryJoin = () => {
+  const code = joinCode.value.trim().toUpperCase();
+  if (code.length !== 4) {
+    homeError('Room codes are 4 characters');
+    return;
+  }
+  net.send({ t: 'joinRoom', name: playerName(), code });
+};
+$('btn-join').addEventListener('click', tryJoin);
+joinCode.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') tryJoin();
+});
+
+function homeError(text: string | null): void {
+  const el = $('home-error');
+  el.classList.toggle('hidden', !text);
+  el.textContent = text ?? '';
+}
+
+net.on('roomList', (msg) => {
+  const ul = $('room-list');
+  ul.innerHTML = '';
+  if (msg.rooms.length === 0) {
+    ul.innerHTML = '<li class="muted">No open rooms — create one!</li>';
+    return;
+  }
+  for (const room of msg.rooms) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${room.hostName}'s race · ${trackName(room.track)} · ${room.playerCount}/4 · ${room.laps} laps`;
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = `Join ${room.code}`;
+    btn.addEventListener('click', () => net.send({ t: 'joinRoom', name: playerName(), code: room.code }));
+    li.append(label, btn);
+    ul.appendChild(li);
+  }
+});
+
+window.setInterval(() => {
+  if (screen === 'home' && net.connected) net.send({ t: 'listRooms' });
+}, 3000);
+
+// ------------------------------------------------------------- lobby ----
+
+net.on('room', (msg) => {
+  lastRoom = msg;
+  homeError(null);
+  if (screen === 'race' || screen === 'results') {
+    renderLobby(); // refresh in background; user returns via results button
+    return;
+  }
+  showScreen('lobby');
+  renderLobby();
+});
+
+net.on('leftRoom', () => {
+  lastRoom = null;
+  showScreen('home');
+});
+
+function renderLobby(): void {
+  if (!lastRoom) return;
+  $('lobby-code').textContent = lastRoom.code;
+  $('lobby-meta').textContent = `${lastRoom.isPublic ? 'public' : 'private'} · ${lastRoom.laps} laps`;
+  const isHostNow = lastRoom.you === 0;
+  lobbyTrackSel.disabled = !isHostNow;
+  if (document.activeElement !== lobbyTrackSel && lobbyTrackSel.value !== lastRoom.track) {
+    lobbyTrackSel.value = lastRoom.track;
+  }
+  if (screen === 'lobby') showBackdrop(lastRoom.track);
+  const ul = $('lobby-players');
+  ul.innerHTML = '';
+  lastRoom.players.forEach((p, i) => {
+    const li = document.createElement('li');
+    const dot = document.createElement('span');
+    dot.className = 'kart-dot';
+    dot.style.background = KART_COLORS[i % KART_COLORS.length]!;
+    const nm = document.createElement('span');
+    nm.textContent = p.name + (i === lastRoom!.you ? ' (you)' : '');
+    const tag = document.createElement('span');
+    if (p.host) {
+      tag.className = 'tag host';
+      tag.textContent = '★ host';
+    } else {
+      tag.className = `tag ${p.ready ? 'ready' : 'waiting'}`;
+      tag.textContent = p.ready ? '✓ ready' : 'waiting';
+    }
+    li.append(dot, nm, tag);
+    ul.appendChild(li);
+  });
+
+  const isHost = lastRoom.you === 0;
+  const others = lastRoom.players.filter((_, i) => i !== 0);
+  const allReady = others.every((p) => p.ready);
+  $('btn-ready').classList.toggle('hidden', isHost);
+  $('btn-start').classList.toggle('hidden', !isHost);
+  const startBtn = $<HTMLButtonElement>('btn-start');
+  startBtn.disabled = !allReady;
+  const me = lastRoom.players[lastRoom.you];
+  $('btn-ready').textContent = me?.ready ? 'Not ready' : 'Ready up';
+  $('lobby-hint').textContent = isHost
+    ? allReady
+      ? others.length === 0
+        ? 'Solo run — or share the code and wait for friends.'
+        : 'Everyone is ready — hit start!'
+      : 'Waiting for players to ready up…'
+    : me?.ready
+      ? 'Waiting for the host to start…'
+      : 'Ready up so the host can start.';
+}
+
+$('btn-ready').addEventListener('click', () => {
+  const me = lastRoom?.players[lastRoom.you];
+  net.send({ t: 'setReady', ready: !me?.ready });
+});
+lobbyTrackSel.addEventListener('change', () => {
+  net.send({ t: 'setTrack', track: lobbyTrackSel.value });
+});
+$('btn-start').addEventListener('click', () => net.send({ t: 'startRace' }));
+$('btn-leave').addEventListener('click', () => net.send({ t: 'leaveRoom' }));
+$('lobby-code').addEventListener('click', () => {
+  if (lastRoom) {
+    void navigator.clipboard.writeText(lastRoom.code).then(() => toast('Room code copied'));
+  }
+});
+
+// -------------------------------------------------------------- race ----
+
+const botMode = new URLSearchParams(location.search).has('bot');
+
+net.on('raceStart', (msg) => {
+  scene.setTrack(getTrack(msg.trackId)); // authoritative: server resolved 'random'
+  controller = new RaceController(
+    net,
+    clock,
+    keyboard,
+    {
+      seed: msg.seed,
+      laps: msg.laps,
+      trackId: msg.trackId,
+      startAtMs: msg.startAtMs,
+      you: msg.you,
+      names: msg.players,
+    },
+    botMode,
+  );
+  // debug hook for E2E tests and console poking (read-only by convention)
+  (window as { __mk?: unknown }).__mk = { controller };
+  resultsShown = false;
+  stallSince = null;
+  $('hud-desync').classList.add('hidden');
+  $('hud-pos-of').textContent = `/${msg.players.length}`;
+  scene.setupKarts(msg.players.map((n, i) => (i === msg.you ? null : n)));
+  showScreen('race');
+});
+
+net.on('input', (msg) => controller?.onRemoteInput(msg.p, msg.f, msg.m));
+net.on('dropped', (msg) => {
+  controller?.onDropped(msg.p, msg.fromFrame);
+  const name = controller?.names[msg.p] ?? `player ${msg.p}`;
+  toast(`${name} disconnected`);
+});
+net.on('desync', (msg) => {
+  controller?.onDesync(msg.frame, msg.detail);
+  const el = $('hud-desync');
+  el.textContent = `⚠ DESYNC at frame ${msg.frame} — simulation diverged`;
+  el.classList.remove('hidden');
+});
+net.on('error', (msg) => {
+  if (screen === 'home') homeError(msg.message);
+  else toast(msg.message);
+});
+net.on('pong', (msg) => clock.onPong(msg.pt, msg.now));
+
+window.setInterval(() => {
+  if (net.connected) net.send({ t: 'ping', pt: Date.now() });
+}, 2000);
+
+keyboard.onDebugToggle = () => {
+  debugVisible = !debugVisible;
+  $('hud-debug').classList.toggle('hidden', !debugVisible);
+};
+
+// ----------------------------------------------------------- results ----
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
+}
+
+function showResults(): void {
+  if (!controller) return;
+  const ol = $('results-list');
+  ol.innerHTML = '';
+  for (const idx of controller.placements()) {
+    const li = document.createElement('li');
+    const dot = document.createElement('span');
+    dot.className = 'kart-dot';
+    dot.style.background = KART_COLORS[idx % KART_COLORS.length]!;
+    const nm = document.createElement('span');
+    nm.textContent = (controller.names[idx] ?? `kart ${idx}`) + (idx === controller.you ? ' (you)' : '');
+    const time = document.createElement('span');
+    time.className = 'rtime';
+    const ft = controller.finishTimeSec(idx);
+    time.textContent = ft !== null ? fmtTime(ft) : 'DNF';
+    li.append(dot, nm, time);
+    ol.appendChild(li);
+  }
+  showScreen('results');
+}
+
+$('btn-back-lobby').addEventListener('click', () => {
+  controller = null;
+  scene.setupIdleKarts();
+  if (lastRoom) {
+    showScreen('lobby');
+    renderLobby();
+  } else {
+    showScreen('home');
+  }
+});
+$('btn-results-leave').addEventListener('click', () => {
+  controller = null;
+  scene.setupIdleKarts();
+  net.send({ t: 'leaveRoom' });
+});
+
+// --------------------------------------------------------- connection ----
+
+net.onOpen(() => {
+  overlayDisconnect.classList.add('hidden');
+  net.send({ t: 'listRooms' });
+  net.send({ t: 'ping', pt: Date.now() });
+});
+net.onClose(() => {
+  overlayDisconnect.classList.remove('hidden');
+  if (controller) {
+    controller = null;
+    scene.setupIdleKarts();
+  }
+  lastRoom = null;
+  showScreen('home');
+});
+net.connect();
+
+// ---------------------------------------------------------- HUD loop ----
+
+function updateHud(): void {
+  if (!controller) return;
+  const st = controller.state;
+  const me = st.karts[controller.you]!;
+
+  const placements = controller.placements();
+  $('hud-pos-num').textContent = String(placements.indexOf(controller.you) + 1);
+  $('hud-lap').textContent = `LAP ${Math.min(me.lap, st.cfg.lapCount)}/${st.cfg.lapCount}`;
+  $('hud-time').textContent = fmtTime(controller.raceTimeSec());
+
+  const kart = controller.renderKarts(0)[controller.you]!;
+  $('hud-speed').textContent = String(Math.round(kart.speed * 60 * 3.6));
+
+  const fill = $('hud-drift-fill');
+  const pct = Math.min(1, me.driftCharge / DRIFT_TIER2_TICKS);
+  fill.style.width = `${pct * 100}%`;
+  fill.style.background =
+    me.driftCharge >= DRIFT_TIER2_TICKS ? '#ff9b2f' : me.driftCharge >= DRIFT_TIER1_TICKS ? '#5ee1ff' : '#8b93a7';
+  $('hud-boost').classList.toggle('hidden', me.boostTicks <= 0);
+
+  const cd = $('hud-countdown');
+  if (st.phase === PHASE_COUNTDOWN) {
+    const n = Math.ceil((COUNTDOWN_TICKS - st.tick) / 60);
+    cd.textContent = String(n);
+    cd.classList.remove('hidden');
+  } else if (st.tick < COUNTDOWN_TICKS + 50 && st.phase !== PHASE_FINISHED) {
+    cd.textContent = 'GO!';
+    cd.classList.remove('hidden');
+  } else {
+    cd.classList.add('hidden');
+  }
+
+  if (controller.stalled && st.phase !== PHASE_FINISHED) {
+    stallSince = stallSince ?? performance.now();
+  } else {
+    stallSince = null;
+  }
+  $('hud-wait').classList.toggle('hidden', !(stallSince && performance.now() - stallSince > 400));
+
+  if (debugVisible) $('hud-debug').textContent = controller.debugText(clock.rttMs);
+}
+
+// Background-tab fallback: RAF stops when a tab is hidden, which would make
+// this client stop sending inputs and stall everyone else at the rollback
+// window. Worker timers are not throttled, so a tiny worker heartbeat keeps
+// the sim (not the renderer) advancing while hidden.
+const heartbeatWorker = new Worker(
+  URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 50);'], { type: 'text/javascript' })),
+);
+heartbeatWorker.onmessage = () => {
+  if (document.hidden && controller) {
+    controller.update();
+    if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
+      resultsShown = true;
+      showResults();
+    }
+  }
+};
+
+let lastT = performance.now();
+function frame(now: number): void {
+  const dt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  if (controller && screen !== 'home' && screen !== 'lobby') {
+    controller.update();
+    const karts = controller.renderKarts(dt);
+    scene.updateRace(karts, controller.state, controller.you, dt);
+    updateHud();
+    if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
+      resultsShown = true;
+      window.setTimeout(() => showResults(), 1400);
+    }
+  } else {
+    scene.updateIdle(dt);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+showScreen('home');

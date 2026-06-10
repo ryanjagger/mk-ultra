@@ -1,0 +1,22 @@
+{
+  "name": "@mk/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mk/shared": "workspace:*",
+    "@mk/sim": "workspace:*",
+    "three": "^0.182.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
+  }
+}

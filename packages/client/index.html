@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MK ULTRA — rollback kart racing</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>" />
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+
+    <div id="screen-home" class="screen">
+      <div class="title-wrap">
+        <h1 class="title">MK&nbsp;ULTRA</h1>
+        <p class="tagline">4-player rollback kart racing</p>
+      </div>
+      <div class="panel-row">
+        <div class="card">
+          <label class="field-label" for="name-input">Driver name</label>
+          <input id="name-input" maxlength="16" placeholder="Racer" autocomplete="off" />
+          <button id="btn-quick" class="btn btn-primary">⚡ Quick Play</button>
+          <div class="divider"></div>
+          <div class="row">
+            <label class="check"><input type="checkbox" id="create-public" checked /> Public</label>
+            <select id="create-laps">
+              <option value="1">1 lap</option>
+              <option value="2">2 laps</option>
+              <option value="3" selected>3 laps</option>
+              <option value="5">5 laps</option>
+            </select>
+            <select id="create-track"></select>
+            <button id="btn-create" class="btn">Create room</button>
+          </div>
+          <div class="row">
+            <input id="join-code" maxlength="4" placeholder="CODE" class="code-input" autocomplete="off" />
+            <button id="btn-join" class="btn">Join</button>
+          </div>
+          <p id="home-error" class="error hidden"></p>
+        </div>
+        <div class="card rooms-card">
+          <h3>Public rooms</h3>
+          <ul id="room-list" class="room-list"><li class="muted">No open rooms — create one!</li></ul>
+        </div>
+      </div>
+      <p class="help">drive: <b>WASD</b>/<b>arrows</b> · drift: <b>space</b> · hold a drift to charge a boost</p>
+    </div>
+
+    <div id="screen-lobby" class="screen hidden">
+      <div class="card lobby-card">
+        <div class="lobby-head">
+          <h2>Room <button id="lobby-code" class="code-chip" title="Click to copy">----</button></h2>
+          <span id="lobby-meta" class="muted"></span>
+        </div>
+        <div class="row">
+          <label class="field-label" for="lobby-track">Track</label>
+          <select id="lobby-track"></select>
+        </div>
+        <ul id="lobby-players" class="player-list"></ul>
+        <p id="lobby-hint" class="muted"></p>
+        <div class="row">
+          <button id="btn-ready" class="btn btn-primary">Ready up</button>
+          <button id="btn-start" class="btn btn-go hidden">Start race</button>
+          <button id="btn-leave" class="btn btn-ghost">Leave</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div id="hud-pos"><span id="hud-pos-num">1</span><span id="hud-pos-of">/4</span></div>
+      <div id="hud-lap">LAP 1/3</div>
+      <div id="hud-time">0:00.00</div>
+      <div id="hud-speed">0</div>
+      <div id="hud-drift"><div id="hud-drift-fill"></div></div>
+      <div id="hud-boost" class="hidden">BOOST!</div>
+      <div id="hud-countdown" class="hidden"></div>
+      <div id="hud-wait" class="hidden">⏳ waiting for players…</div>
+      <div id="hud-desync" class="hidden"></div>
+      <div id="hud-debug" class="hidden"></div>
+    </div>
+
+    <div id="screen-results" class="screen hidden">
+      <div class="card results-card">
+        <h2>🏁 Race results</h2>
+        <ol id="results-list" class="results-list"></ol>
+        <div class="row">
+          <button id="btn-back-lobby" class="btn btn-primary">Back to lobby</button>
+          <button id="btn-results-leave" class="btn btn-ghost">Leave room</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="overlay-disconnect" class="screen hidden">
+      <div class="card"><h2>Connection lost</h2><p class="muted">Reconnecting…</p></div>
+    </div>
+
+    <div id="toast" class="hidden"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
