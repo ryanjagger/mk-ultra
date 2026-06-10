@@ -123,6 +123,11 @@ input:focus { border-color: var(--accent); }
   0% { transform: translateX(-50%) scale(1.5); opacity: 0; }
   100% { transform: translateX(-50%) scale(1); opacity: 1; }
 }
+#hud-item.bump { animation: itembump 0.3s ease infinite alternate; border-color: #fff; }
+@keyframes itembump {
+  from { transform: translateX(-50%) scale(1); }
+  to { transform: translateX(-50%) scale(1.16); }
+}
 #hud-item-icon { font-size: 40px; line-height: 1; }
 #hud-item-key {
   position: absolute; right: -8px; bottom: -8px; width: 24px; height: 24px;

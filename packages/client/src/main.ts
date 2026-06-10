@@ -6,11 +6,12 @@ import {
   DRIFT_TIER1_TICKS,
   DRIFT_TIER2_TICKS,
   ITEM_NONE,
-  ITEM_BOOST,
-  ITEM_SHELL,
-  ITEM_OIL,
   TRACKS,
   getTrack,
+  fxToFloat,
+  isItemActive,
+  type GameState,
+  type KartState,
 } from '@mk/sim';
 import { RANDOM_TRACK, type ServerMsg } from '@mk/shared';
 import { Net } from './net.js';
@@ -374,6 +375,43 @@ net.connect();
 
 // ---------------------------------------------------------- HUD loop ----
 
+// --- held-item badge: roulette on acquisition, bump when passing boxes full-handed
+const ITEM_ICONS = ['🚀', '🐢', '🛢️']; // indexed by ITEM_BOOST/SHELL/OIL
+let lastHeld = ITEM_NONE;
+let rouletteUntil = 0;
+
+function updateItemBadge(st: GameState, me: KartState): void {
+  const itemEl = $('hud-item');
+  itemEl.classList.toggle('hidden', me.heldItem === ITEM_NONE);
+  if (me.heldItem !== ITEM_NONE && lastHeld === ITEM_NONE) {
+    rouletteUntil = performance.now() + 700; // slot-machine reveal
+  }
+  lastHeld = me.heldItem;
+  if (me.heldItem === ITEM_NONE) return;
+
+  const now = performance.now();
+  const icon =
+    now < rouletteUntil
+      ? ITEM_ICONS[Math.floor(now / 80) % ITEM_ICONS.length]!
+      : (ITEM_ICONS[me.heldItem] ?? '❔');
+  const iconEl = $('hud-item-icon');
+  if (iconEl.textContent !== icon) iconEl.textContent = icon;
+
+  // hands full: driving through a live box does nothing — say so visually
+  let onBox = false;
+  for (let i = 0; i < st.track.itemSpawns.length; i++) {
+    if (!isItemActive(st, i)) continue;
+    const sp = st.track.itemSpawns[i]!;
+    const dx = fxToFloat(sp.x) - fxToFloat(me.x);
+    const dy = fxToFloat(sp.y) - fxToFloat(me.y);
+    if (dx * dx + dy * dy < 2.2 * 2.2) {
+      onBox = true;
+      break;
+    }
+  }
+  itemEl.classList.toggle('bump', onBox);
+}
+
 function updateHud(): void {
   if (!controller) return;
   const st = controller.state;
@@ -393,15 +431,7 @@ function updateHud(): void {
   fill.style.background =
     me.driftCharge >= DRIFT_TIER2_TICKS ? '#ff9b2f' : me.driftCharge >= DRIFT_TIER1_TICKS ? '#5ee1ff' : '#8b93a7';
   $('hud-boost').classList.toggle('hidden', me.boostTicks <= 0);
-
-  const itemEl = $('hud-item');
-  itemEl.classList.toggle('hidden', me.heldItem === ITEM_NONE);
-  if (me.heldItem !== ITEM_NONE) {
-    const icon =
-      me.heldItem === ITEM_BOOST ? '🚀' : me.heldItem === ITEM_SHELL ? '🐢' : me.heldItem === ITEM_OIL ? '🛢️' : '❔';
-    const iconEl = $('hud-item-icon');
-    if (iconEl.textContent !== icon) iconEl.textContent = icon;
-  }
+  updateItemBadge(st, me);
 
   const cd = $('hud-countdown');
   if (st.phase === PHASE_COUNTDOWN) {

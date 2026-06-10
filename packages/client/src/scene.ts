@@ -204,6 +204,8 @@ export class GameScene {
   private padMeshes: THREE.Mesh[] = [];
   private shellMeshes: THREE.Mesh[] = [];
   private oilMeshes: THREE.Mesh[] = [];
+  private shards: { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number }[] = [];
+  private shardGeo = new THREE.BoxGeometry(0.26, 0.26, 0.26);
 
   private orbit = { cx: 0, cz: 0, radius: 95, height: 42 };
   private idleAngle = 0;
@@ -276,6 +278,11 @@ export class GameScene {
     this.itemWasActive = [];
     this.itemPop = [];
     this.padMeshes = [];
+    for (const s of this.shards) {
+      this.scene.remove(s.mesh);
+      (s.mesh.material as THREE.Material).dispose();
+    }
+    this.shards = [];
     this.world = this.buildWorld(track);
     this.scene.add(this.world);
     this.applyTheme(track);
@@ -589,6 +596,7 @@ export class GameScene {
     });
 
     this.updateItems(state, dt);
+    this.updateShards(dt);
     this.updatePads();
     this.updateProjectiles(state);
 
@@ -644,10 +652,51 @@ export class GameScene {
     });
   }
 
+  /** Box-break burst: gold shards thrown from the pickup point. */
+  private spawnBurst(pos: THREE.Vector3): void {
+    for (let n = 0; n < 8; n++) {
+      const mat = new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true });
+      const mesh = new THREE.Mesh(this.shardGeo, mat);
+      mesh.position.copy(pos);
+      mesh.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+      const a = (n / 8) * Math.PI * 2 + Math.random() * 0.5;
+      this.shards.push({
+        mesh,
+        vx: Math.cos(a) * (2.5 + Math.random() * 2),
+        vz: Math.sin(a) * (2.5 + Math.random() * 2),
+        vy: 3.5 + Math.random() * 2.5,
+        life: 0.6,
+      });
+      this.scene.add(mesh);
+    }
+  }
+
+  private updateShards(dt: number): void {
+    for (let i = this.shards.length - 1; i >= 0; i--) {
+      const s = this.shards[i]!;
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.scene.remove(s.mesh);
+        (s.mesh.material as THREE.Material).dispose();
+        this.shards.splice(i, 1);
+        continue;
+      }
+      s.vy -= 14 * dt;
+      s.mesh.position.x += s.vx * dt;
+      s.mesh.position.y = Math.max(0.1, s.mesh.position.y + s.vy * dt);
+      s.mesh.position.z += s.vz * dt;
+      s.mesh.rotation.x += dt * 7;
+      s.mesh.rotation.y += dt * 9;
+      (s.mesh.material as THREE.MeshBasicMaterial).opacity = s.life / 0.6;
+    }
+  }
+
   private updateItems(state: GameState | null, dt: number): void {
     this.itemMeshes.forEach((mesh, i) => {
       const active = state ? isItemActive(state, i) : true;
       if (active && !this.itemWasActive[i]) this.itemPop[i] = 0;
+      // someone just took this box: break it apart where it floats
+      if (!active && this.itemWasActive[i]) this.spawnBurst(mesh.position);
       this.itemWasActive[i] = active;
       mesh.visible = active;
       if (active) {
@@ -676,6 +725,7 @@ export class GameScene {
       this.camera.updateProjectionMatrix();
     }
     this.updateItems(null, dt);
+    this.updateShards(dt);
     this.updatePads();
     this.updateProjectiles(null);
     this.renderer.render(this.scene, this.camera);
