@@ -46,9 +46,12 @@ export class AudioEngine {
   private noise: AudioBuffer | null = null;
 
   // continuous voices (local kart only)
-  private engineOsc: OscillatorNode | null = null;
-  private engineGain: GainNode | null = null;
-  private engineFilter: BiquadFilterNode | null = null;
+  private motorOsc: OscillatorNode | null = null;
+  private motorOsc2: OscillatorNode | null = null; // inverter shimmer, ~1 octave up
+  private motorGain: GainNode | null = null;
+  private motorFilter: BiquadFilterNode | null = null;
+  private windFilter: BiquadFilterNode | null = null;
+  private windGain: GainNode | null = null;
   private squealGain: GainNode | null = null;
 
   // previous-frame state for transition detection
@@ -97,19 +100,45 @@ export class AudioEngine {
     }
   }
 
-  /** Engine hum + drift squeal: built once, steered every frame. */
+  /**
+   * EV drivetrain + drift squeal: built once, steered every frame.
+   * Electric character = near-silent idle, clean motor whine sweeping a wide
+   * range with speed, a detuned upper partial (inverter shimmer), and
+   * road/wind noise replacing combustion rumble.
+   */
   private buildEngineVoice(): void {
     const ctx = this.ctx!;
-    this.engineOsc = ctx.createOscillator();
-    this.engineOsc.type = 'sawtooth';
-    this.engineOsc.frequency.value = 55;
-    this.engineFilter = ctx.createBiquadFilter();
-    this.engineFilter.type = 'lowpass';
-    this.engineFilter.frequency.value = 500;
-    this.engineGain = ctx.createGain();
-    this.engineGain.gain.value = 0;
-    this.engineOsc.connect(this.engineFilter).connect(this.engineGain).connect(this.master!);
-    this.engineOsc.start();
+    this.motorFilter = ctx.createBiquadFilter();
+    this.motorFilter.type = 'lowpass';
+    this.motorFilter.frequency.value = 1200;
+    this.motorGain = ctx.createGain();
+    this.motorGain.gain.value = 0;
+    this.motorFilter.connect(this.motorGain).connect(this.master!);
+
+    this.motorOsc = ctx.createOscillator();
+    this.motorOsc.type = 'triangle';
+    this.motorOsc.frequency.value = 70;
+    this.motorOsc.connect(this.motorFilter);
+    this.motorOsc.start();
+
+    const shimmerGain = ctx.createGain();
+    shimmerGain.gain.value = 0.35; // quieter than the fundamental
+    this.motorOsc2 = ctx.createOscillator();
+    this.motorOsc2.type = 'sine';
+    this.motorOsc2.frequency.value = 143;
+    this.motorOsc2.connect(shimmerGain).connect(this.motorFilter);
+    this.motorOsc2.start();
+
+    const wind = ctx.createBufferSource();
+    wind.buffer = this.noise!;
+    wind.loop = true;
+    this.windFilter = ctx.createBiquadFilter();
+    this.windFilter.type = 'lowpass';
+    this.windFilter.frequency.value = 350;
+    this.windGain = ctx.createGain();
+    this.windGain.gain.value = 0;
+    wind.connect(this.windFilter).connect(this.windGain).connect(this.master!);
+    wind.start();
 
     const squeal = ctx.createBufferSource();
     squeal.buffer = this.noise!;
@@ -219,11 +248,21 @@ export class AudioEngine {
     const t = this.ctx!.currentTime;
     const speed = Math.hypot(fxToFloat(me.vx), fxToFloat(me.vy));
     const norm = Math.min(1, speed / (fxToFloat(MAX_SPEED) * 1.42));
-    const racing = st.phase === PHASE_RACING && me.finishTick < 0;
-    const target = racing || norm > 0.02 ? 0.05 + norm * 0.06 : 0;
-    this.engineGain!.gain.setTargetAtTime(this.muted ? 0 : target, t, 0.08);
-    this.engineOsc!.frequency.setTargetAtTime(50 + norm * 180 + (me.boostTicks > 0 ? 40 : 0), t, 0.06);
-    this.engineFilter!.frequency.setTargetAtTime(400 + norm * 900, t, 0.08);
+    const boosting = me.boostTicks > 0;
+
+    // motor whine: quadratic rise feels like an EV pulling — wide sweep,
+    // shimmer riding just past an octave above so the partials beat slightly
+    const whine = 70 + norm * norm * 760 + (boosting ? 90 : 0);
+    this.motorOsc!.frequency.setTargetAtTime(whine, t, 0.06);
+    this.motorOsc2!.frequency.setTargetAtTime(whine * 2.04, t, 0.06);
+    this.motorFilter!.frequency.setTargetAtTime(900 + norm * 2600, t, 0.08);
+    // near-silent at standstill — EVs creep quietly
+    const motor = norm < 0.01 ? 0 : 0.012 + norm * 0.075;
+    this.motorGain!.gain.setTargetAtTime(this.muted ? 0 : motor, t, 0.08);
+
+    // road/wind noise carries the sense of speed instead of engine rumble
+    this.windFilter!.frequency.setTargetAtTime(250 + norm * 900, t, 0.1);
+    this.windGain!.gain.setTargetAtTime(this.muted ? 0 : norm * 0.05, t, 0.1);
 
     const squeal = me.driftDir !== 0 && speed > 0.1 ? 0.05 + Math.min(1, me.driftCharge / DRIFT_TIER2_TICKS) * 0.05 : 0;
     this.squealGain!.gain.setTargetAtTime(this.muted ? 0 : squeal, t, 0.05);
