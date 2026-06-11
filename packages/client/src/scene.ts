@@ -108,18 +108,31 @@ interface KartVisual {
   sparkMat: THREE.MeshBasicMaterial;
 }
 
-function buildKart(color: string, name: string | null): KartVisual {
+/** Render-only cosmetic colors for one kart (resolved from a PlayerStyle). */
+export interface KartLook {
+  primary: string;
+  accent: string;
+  flame: string;
+}
+
+export function defaultLook(seat: number): KartLook {
+  const c = KART_COLORS[seat % KART_COLORS.length]!;
+  return { primary: c, accent: c, flame: '#ff9b2f' };
+}
+
+function buildKart(look: KartLook, name: string | null): KartVisual {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.15 });
+  const mat = new THREE.MeshStandardMaterial({ color: look.primary, roughness: 0.5, metalness: 0.15 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: look.accent, roughness: 0.5, metalness: 0.15 });
   const dark = new THREE.MeshStandardMaterial({ color: '#1c1f26', roughness: 0.9 });
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.42, 0.92), mat);
   body.position.y = 0.42;
   group.add(body);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.55), mat);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.55), accentMat);
   nose.position.set(0.95, 0.38, 0);
   group.add(nose);
-  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.95), mat);
+  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.95), accentMat);
   spoiler.position.set(-0.78, 0.72, 0);
   group.add(spoiler);
 
@@ -160,7 +173,7 @@ function buildKart(color: string, name: string | null): KartVisual {
 
   const flame = new THREE.Mesh(
     new THREE.ConeGeometry(0.24, 0.95, 10),
-    new THREE.MeshBasicMaterial({ color: '#ff9b2f', transparent: true, opacity: 0.92 }),
+    new THREE.MeshBasicMaterial({ color: look.flame, transparent: true, opacity: 0.92 }),
   );
   flame.rotation.z = Math.PI / 2; // apex points -x (backwards)
   flame.position.set(-1.05, 0.45, 0);
@@ -178,7 +191,7 @@ function buildKart(color: string, name: string | null): KartVisual {
   sparkR.visible = false;
   group.add(sparkR);
 
-  if (name) group.add(nameSprite(name, color));
+  if (name) group.add(nameSprite(name, look.primary));
   return { group, flame, sparkL, sparkR, sparkMat };
 }
 
@@ -547,14 +560,14 @@ export class GameScene {
   }
 
   /** Create kart visuals for a race. names[i] === null hides the name tag (local kart). */
-  setupKarts(names: (string | null)[]): void {
+  setupKarts(names: (string | null)[], looks?: KartLook[]): void {
     for (const k of this.karts) {
       this.scene.remove(k.group);
       disposeTree(k.group);
     }
     this.karts = [];
     names.forEach((name, i) => {
-      const visual = buildKart(KART_COLORS[i % KART_COLORS.length]!, name);
+      const visual = buildKart(looks?.[i] ?? defaultLook(i), name);
       const spawn = this.track.spawns[i]!;
       visual.group.position.copy(toV3(spawn.x, spawn.y));
       visual.group.rotation.y = (spawn.heading / 65536) * Math.PI * 2;

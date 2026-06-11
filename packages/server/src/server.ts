@@ -7,7 +7,7 @@ import { existsSync, createReadStream, statSync } from 'node:fs';
 import { join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { parseClientMsg, type ServerMsg } from '@mk/shared';
+import { parseClientMsg, DEFAULT_STYLE, type ServerMsg } from '@mk/shared';
 import { GameLobby, type PlayerCtx } from './rooms.js';
 
 const MIME: Record<string, string> = {
@@ -92,6 +92,7 @@ export function createGameServer(port: number): Promise<GameServer> {
   wss.on('connection', (ws: WebSocket) => {
     const ctx: PlayerCtx = {
       name: 'player',
+      style: DEFAULT_STYLE,
       room: null,
       conn: {
         send(msg: ServerMsg) {

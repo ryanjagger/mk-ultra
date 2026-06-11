@@ -65,6 +65,7 @@ export interface OilState {
   ttl: number;
   x: Fx;
   y: Fx;
+  owner: number; // kart index that dropped it (for takedown attribution)
 }
 
 export const MAX_SHELLS = 8; // 4 players x 2 in flight (pickup cadence < shell ttl)
@@ -87,7 +88,7 @@ export interface GameState {
 const KART_INTS = 13;
 const GLOBAL_INTS = 4;
 const SHELL_INTS = 7;
-const OIL_INTS = 3;
+const OIL_INTS = 4;
 const POOL_INTS = MAX_SHELLS * SHELL_INTS + MAX_OILS * OIL_INTS;
 
 export function snapshotInts(cfg: RaceConfig): number {
@@ -129,7 +130,7 @@ export function createGameState(cfg: RaceConfig): GameState {
   }
   const oils: OilState[] = [];
   for (let i = 0; i < MAX_OILS; i++) {
-    oils.push({ ttl: 0, x: 0, y: 0 });
+    oils.push({ ttl: 0, x: 0, y: 0, owner: 0 });
   }
 
   return {
@@ -181,6 +182,7 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = o.ttl;
     out[i++] = o.x;
     out[i++] = o.y;
+    out[i++] = o.owner;
   }
 }
 
@@ -219,6 +221,7 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     o.ttl = arr[i++]!;
     o.x = arr[i++]!;
     o.y = arr[i++]!;
+    o.owner = arr[i++]!;
   }
 }
 

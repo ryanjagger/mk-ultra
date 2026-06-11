@@ -6,7 +6,14 @@
  * authoritative arrival order, and cross-checks the state hashes clients
  * report for fully-confirmed frames (NFR-17).
  */
-import { RANDOM_TRACK, type ClientMsg, type ServerMsg, type RoomInfo } from '@mk/shared';
+import {
+  RANDOM_TRACK,
+  DEFAULT_STYLE,
+  type ClientMsg,
+  type ServerMsg,
+  type RoomInfo,
+  type PlayerStyle,
+} from '@mk/shared';
 import { MAX_PLAYERS, TRACKS, isTrackId } from '@mk/sim';
 import { randomInt } from 'node:crypto';
 
@@ -17,12 +24,14 @@ export interface Conn {
 export interface PlayerCtx {
   conn: Conn;
   name: string;
+  style: PlayerStyle;
   room: Room | null;
 }
 
 interface Seat {
   ctx: PlayerCtx | null;
   name: string;
+  style: PlayerStyle;
   ready: boolean;
   connected: boolean;
 }
@@ -97,11 +106,13 @@ export class GameLobby {
       case 'createRoom':
         this.leaveRoom(ctx);
         ctx.name = msg.name;
+        ctx.style = msg.style ?? DEFAULT_STYLE;
         this.createRoom(ctx, msg.isPublic, msg.laps, sanitizeTrack(msg.track));
         return;
       case 'joinRoom': {
         this.leaveRoom(ctx);
         ctx.name = msg.name;
+        ctx.style = msg.style ?? DEFAULT_STYLE;
         const room = this.rooms.get(msg.code.toUpperCase());
         if (!room) {
           ctx.conn.send({ t: 'error', message: 'Room not found' });
@@ -113,6 +124,7 @@ export class GameLobby {
       case 'quickPlay': {
         this.leaveRoom(ctx);
         ctx.name = msg.name;
+        ctx.style = msg.style ?? DEFAULT_STYLE;
         let target: Room | null = null;
         for (const room of this.rooms.values()) {
           if (room.isPublic && room.state === 'lobby' && room.seats.length < MAX_PLAYERS) {
@@ -185,7 +197,7 @@ export class GameLobby {
       laps,
       track,
       state: 'lobby',
-      seats: [{ ctx, name: ctx.name, ready: false, connected: true }],
+      seats: [{ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true }],
       race: null,
     };
     this.rooms.set(room.code, room);
@@ -202,7 +214,7 @@ export class GameLobby {
       ctx.conn.send({ t: 'error', message: 'Room is full' });
       return;
     }
-    room.seats.push({ ctx, name: ctx.name, ready: false, connected: true });
+    room.seats.push({ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true });
     ctx.room = room;
     this.broadcastRoom(room);
   }
@@ -268,6 +280,7 @@ export class GameLobby {
       desyncAnnounced: false,
     };
     const names = room.seats.map((s) => s.name);
+    const styles = room.seats.map((s) => s.style);
     console.log(
       `[room ${room.code}] race start: ${kartCount} karts, seed ${room.race.seed}, track ${trackId}`,
     );
@@ -280,6 +293,7 @@ export class GameLobby {
         startAtMs: room.race!.startAtMs,
         you: i,
         players: names,
+        styles,
       });
     });
   }
@@ -367,6 +381,7 @@ export class GameLobby {
       ready: s.ready,
       host: i === 0,
       connected: s.connected,
+      style: s.style,
     }));
     room.seats.forEach((seat, i) => {
       seat.ctx?.conn.send({

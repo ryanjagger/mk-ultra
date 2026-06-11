@@ -13,13 +13,24 @@ import {
   type GameState,
   type KartState,
 } from '@mk/sim';
-import { RANDOM_TRACK, type ServerMsg } from '@mk/shared';
+import { RANDOM_TRACK, type ServerMsg, type PlayerStyle } from '@mk/shared';
 import { Net } from './net.js';
 import { ClockSync } from './clock.js';
 import { Keyboard } from './keyboard.js';
 import { RaceController } from './game.js';
-import { GameScene, KART_COLORS } from './scene.js';
+import { GameScene, KART_COLORS, defaultLook, type KartLook } from './scene.js';
 import { AudioEngine } from './audio.js';
+import { getProfile, saveProfile, myStyle } from './profile.js';
+import {
+  LIVERIES,
+  FLAMES,
+  liveryById,
+  flameById,
+  liveryColor,
+  levelProgress,
+  levelFromXp,
+} from './cosmetics.js';
+import { FeatTracker, awardRace, type RaceAward } from './progression.js';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -121,7 +132,87 @@ function playerName(): string {
   return n;
 }
 
-$('btn-quick').addEventListener('click', () => net.send({ t: 'quickPlay', name: playerName() }));
+// ------------------------------------------------------- garage/driver ----
+
+function renderDriver(): void {
+  const p = getProfile();
+  const prog = levelProgress(p.xp);
+  $('driver-level').textContent = `LV ${prog.level}`;
+  $('driver-xpfill').style.width = `${(prog.into / prog.span) * 100}%`;
+}
+
+function garageItem(opts: {
+  name: string;
+  level: number;
+  swatch: string | null;
+  equipped: boolean;
+  unlocked: boolean;
+  onEquip: () => void;
+}): HTMLElement {
+  const el = document.createElement('div');
+  el.className = `garage-item${opts.equipped ? ' equipped' : ''}${opts.unlocked ? '' : ' locked'}`;
+  if (opts.swatch) {
+    const sw = document.createElement('span');
+    sw.className = 'garage-swatch';
+    sw.style.background = opts.swatch;
+    el.appendChild(sw);
+  }
+  const label = document.createElement('span');
+  label.textContent = opts.unlocked ? opts.name : `🔒 ${opts.name} (LV ${opts.level})`;
+  el.appendChild(label);
+  if (opts.unlocked) {
+    el.addEventListener('click', () => {
+      opts.onEquip();
+      renderGarage();
+    });
+  }
+  return el;
+}
+
+function renderGarage(): void {
+  const p = getProfile();
+  const level = levelFromXp(p.xp);
+  const liveries = $('garage-liveries');
+  liveries.innerHTML = '';
+  for (const l of LIVERIES) {
+    liveries.appendChild(
+      garageItem({
+        name: l.name,
+        level: l.level,
+        swatch: l.primary ?? KART_COLORS[0]!,
+        equipped: p.livery === l.id,
+        unlocked: level >= l.level,
+        onEquip: () => saveProfile({ ...getProfile(), livery: l.id }),
+      }),
+    );
+  }
+  const flames = $('garage-flames');
+  flames.innerHTML = '';
+  for (const f of FLAMES) {
+    flames.appendChild(
+      garageItem({
+        name: f.name,
+        level: f.level,
+        swatch: f.color,
+        equipped: p.flame === f.id,
+        unlocked: level >= f.level,
+        onEquip: () => saveProfile({ ...getProfile(), flame: f.id }),
+      }),
+    );
+  }
+}
+
+$('btn-garage').addEventListener('click', () => {
+  const panel = $('garage-panel');
+  const opening = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !opening);
+  if (opening) renderGarage();
+});
+renderDriver();
+
+$('btn-quick').addEventListener('click', () =>
+  net.send({ t: 'quickPlay', name: playerName(), style: myStyle() }),
+);
 $('btn-create').addEventListener('click', () =>
   net.send({
     t: 'createRoom',
@@ -129,6 +220,7 @@ $('btn-create').addEventListener('click', () =>
     isPublic: $<HTMLInputElement>('create-public').checked,
     laps: Number($<HTMLSelectElement>('create-laps').value),
     track: createTrackSel.value,
+    style: myStyle(),
   }),
 );
 const joinCode = $<HTMLInputElement>('join-code');
@@ -138,7 +230,7 @@ const tryJoin = () => {
     homeError('Room codes are 4 characters');
     return;
   }
-  net.send({ t: 'joinRoom', name: playerName(), code });
+  net.send({ t: 'joinRoom', name: playerName(), code, style: myStyle() });
 };
 $('btn-join').addEventListener('click', tryJoin);
 joinCode.addEventListener('keydown', (e) => {
@@ -165,7 +257,9 @@ net.on('roomList', (msg) => {
     const btn = document.createElement('button');
     btn.className = 'btn';
     btn.textContent = `Join ${room.code}`;
-    btn.addEventListener('click', () => net.send({ t: 'joinRoom', name: playerName(), code: room.code }));
+    btn.addEventListener('click', () =>
+      net.send({ t: 'joinRoom', name: playerName(), code: room.code, style: myStyle() }),
+    );
     li.append(label, btn);
     ul.appendChild(li);
   }
@@ -209,9 +303,12 @@ function renderLobby(): void {
     const li = document.createElement('li');
     const dot = document.createElement('span');
     dot.className = 'kart-dot';
-    dot.style.background = KART_COLORS[i % KART_COLORS.length]!;
+    dot.style.background = liveryColor(p.style.livery, i);
     const nm = document.createElement('span');
     nm.textContent = p.name + (i === lastRoom!.you ? ' (you)' : '');
+    const lvl = document.createElement('span');
+    lvl.className = 'lvl';
+    lvl.textContent = `LV ${p.style.level}`;
     const tag = document.createElement('span');
     if (p.host) {
       tag.className = 'tag host';
@@ -220,7 +317,7 @@ function renderLobby(): void {
       tag.className = `tag ${p.ready ? 'ready' : 'waiting'}`;
       tag.textContent = p.ready ? '✓ ready' : 'waiting';
     }
-    li.append(dot, nm, tag);
+    li.append(dot, nm, lvl, tag);
     ul.appendChild(li);
   });
 
@@ -262,6 +359,14 @@ $('lobby-code').addEventListener('click', () => {
 // -------------------------------------------------------------- race ----
 
 const botMode = new URLSearchParams(location.search).has('bot');
+let feats: FeatTracker | null = null;
+let raceAward: RaceAward | null = null;
+
+function lookOf(style: PlayerStyle, seat: number): KartLook {
+  const l = liveryById(style.livery);
+  const primary = l.primary ?? defaultLook(seat).primary;
+  return { primary, accent: l.accent ?? primary, flame: flameById(style.flame).color };
+}
 
 net.on('raceStart', (msg) => {
   scene.setTrack(getTrack(msg.trackId)); // authoritative: server resolved 'random'
@@ -282,11 +387,16 @@ net.on('raceStart', (msg) => {
   // debug hook for E2E tests and console poking (read-only by convention)
   (window as { __mk?: unknown }).__mk = { controller };
   audio.reset();
+  feats = new FeatTracker();
+  raceAward = null;
   resultsShown = false;
   stallSince = null;
   $('hud-desync').classList.add('hidden');
   $('hud-pos-of').textContent = `/${msg.players.length}`;
-  scene.setupKarts(msg.players.map((n, i) => (i === msg.you ? null : n)));
+  scene.setupKarts(
+    msg.players.map((n, i) => (i === msg.you ? null : n)),
+    msg.styles.map((s, i) => lookOf(s, i)),
+  );
   showScreen('race');
 });
 
@@ -358,7 +468,51 @@ function showResults(): void {
     li.append(dot, nm, time);
     ol.appendChild(li);
   }
+  if (feats && !raceAward) {
+    raceAward = awardRace(controller, feats);
+    feats = null;
+  }
+  if (raceAward) renderXpAward(raceAward);
+  renderDriver();
   showScreen('results');
+}
+
+/** XP breakdown + animated bar fill on the results screen. */
+function renderXpAward(award: RaceAward): void {
+  const lines = $('xp-lines');
+  lines.innerHTML = '';
+  for (const l of award.lines) {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = l.label;
+    const xp = document.createElement('b');
+    xp.textContent = `+${l.xp} XP`;
+    li.append(label, xp);
+    lines.appendChild(li);
+  }
+  const after = levelProgress(award.xpAfter);
+  $('xp-level-tag').textContent = `LV ${after.level}`;
+  $('xp-next').textContent = `${after.into}/${after.span}`;
+  const leveled = award.levelAfter > award.levelBefore;
+  $('xp-levelup').classList.toggle('hidden', !leveled);
+  const unlocks = $('xp-unlocks');
+  unlocks.innerHTML = '';
+  for (const u of award.unlocked) {
+    const li = document.createElement('li');
+    li.textContent = `🔓 ${u} — equip it in the Garage`;
+    unlocks.appendChild(li);
+  }
+  // animate the fill: start from the pre-race position (or 0 after a level-up)
+  const before = levelProgress(award.xpBefore);
+  const fill = $('xp-fill');
+  fill.style.transition = 'none';
+  fill.style.width = leveled ? '0%' : `${(before.into / before.span) * 100}%`;
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      fill.style.transition = '';
+      fill.style.width = `${(after.into / after.span) * 100}%`;
+    }),
+  );
 }
 
 $('btn-back-lobby').addEventListener('click', () => {
@@ -487,6 +641,7 @@ const heartbeatWorker = new Worker(
 heartbeatWorker.onmessage = () => {
   if (document.hidden && controller) {
     controller.update();
+    feats?.track(controller);
     if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
       resultsShown = true;
       showResults();
@@ -503,6 +658,7 @@ function frame(now: number): void {
     const karts = controller.renderKarts(dt);
     scene.updateRace(karts, controller.state, controller.you, dt);
     audio.update(controller);
+    feats?.track(controller);
     updateHud();
     if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
       resultsShown = true;

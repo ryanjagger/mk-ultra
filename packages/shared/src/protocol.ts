@@ -25,6 +25,20 @@ const hash32 = z.number().int().min(0).max(0xffffffff);
 const trackChoice = z.string().min(1).max(32);
 export const RANDOM_TRACK = 'random';
 
+export const MAX_LEVEL = 99;
+/**
+ * Cosmetic identity a player carries into rooms. Ids are shape-only here
+ * (shared cannot depend on the client catalog); clients fall back to defaults
+ * for ids they don't recognize. Self-reported level — no server-side trust.
+ */
+export const PlayerStyleSchema = z.object({
+  level: z.number().int().min(0).max(MAX_LEVEL),
+  livery: z.string().min(1).max(16),
+  flame: z.string().min(1).max(16),
+});
+export type PlayerStyle = z.infer<typeof PlayerStyleSchema>;
+export const DEFAULT_STYLE: PlayerStyle = { level: 0, livery: 'seat', flame: 'classic' };
+
 // ---------------------------------------------------------------- C2S ----
 
 export const ClientMsgSchema = z.discriminatedUnion('t', [
@@ -35,9 +49,10 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
     isPublic: z.boolean(),
     laps: z.number().int().min(1).max(MAX_LAPS),
     track: trackChoice.optional(), // default: 'random'
+    style: PlayerStyleSchema.optional(),
   }),
-  z.object({ t: z.literal('joinRoom'), name, code: roomCode }),
-  z.object({ t: z.literal('quickPlay'), name }),
+  z.object({ t: z.literal('joinRoom'), name, code: roomCode, style: PlayerStyleSchema.optional() }),
+  z.object({ t: z.literal('quickPlay'), name, style: PlayerStyleSchema.optional() }),
   z.object({ t: z.literal('leaveRoom') }),
   z.object({ t: z.literal('setReady'), ready: z.boolean() }),
   z.object({ t: z.literal('setTrack'), track: trackChoice }), // host-only, lobby-only
@@ -56,6 +71,7 @@ export const RoomPlayerSchema = z.object({
   ready: z.boolean(),
   host: z.boolean(),
   connected: z.boolean(),
+  style: PlayerStyleSchema,
 });
 export type RoomPlayer = z.infer<typeof RoomPlayerSchema>;
 
@@ -89,6 +105,7 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     startAtMs: z.number(),
     you: z.number().int().min(0).max(3),
     players: z.array(name).min(1).max(4),
+    styles: z.array(PlayerStyleSchema).min(1).max(4),
   }),
   z.object({ t: z.literal('input'), p: z.number().int().min(0).max(3), f: frame, m: inputMask }),
   z.object({ t: z.literal('dropped'), p: z.number().int().min(0).max(3), fromFrame: frame }),

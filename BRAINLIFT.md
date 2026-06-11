@@ -19,6 +19,15 @@ padded one.
 
 ### Progress
 
+- Progression: local driver profile (localStorage, no accounts) with XP,
+  levels and a garage of level-gated liveries + flame colors. XP comes from
+  placement plus in-race feats — takedowns (attributed via shell/oil `owner`)
+  and tier-2 drifts — detected by state-diffing, awarded with an animated
+  XP-bar + LEVEL UP moment on the results screen. Cosmetics travel in a new
+  `PlayerStyle` protocol object so other players see your livery and level;
+  the only sim change was adding `owner` to oil slicks for attribution.
+  Design rule that shaped it all: progression never touches kart performance
+  — fairness and the deterministic sim stay untouched.
 - Audio: fully synthesized Web Audio engine (`client/src/audio.ts`) — engine
   pitch tracks speed, drift squeal scales with charge, one-shot synths for
   pickups, boosts, drift tiers, shells (fire/bounce), oil drops, spin-outs,

@@ -150,6 +150,7 @@ export function useHeldItem(st: GameState, p: number): void {
     o.ttl = OIL_TTL;
     o.x = clampWorld(sub(kart.x, mul(fwdX, off)));
     o.y = clampWorld(sub(kart.y, mul(fwdY, off)));
+    o.owner = p;
   }
 }
 

@@ -18,6 +18,17 @@
         <div class="card">
           <label class="field-label" for="name-input">Driver name</label>
           <input id="name-input" maxlength="16" placeholder="Racer" autocomplete="off" />
+          <div id="driver-row">
+            <span id="driver-level" class="level-chip">LV 0</span>
+            <div class="xp-bar"><div id="driver-xpfill" class="xp-fill"></div></div>
+            <button id="btn-garage" class="btn btn-ghost">🏎 Garage</button>
+          </div>
+          <div id="garage-panel" class="hidden">
+            <h4>Livery</h4>
+            <div id="garage-liveries" class="garage-row"></div>
+            <h4>Boost flame</h4>
+            <div id="garage-flames" class="garage-row"></div>
+          </div>
           <button id="btn-quick" class="btn btn-primary">⚡ Quick Play</button>
           <div class="divider"></div>
           <div class="row">
@@ -84,6 +95,16 @@
       <div class="card results-card">
         <h2>🏁 Race results</h2>
         <ol id="results-list" class="results-list"></ol>
+        <div id="results-xp">
+          <ul id="xp-lines"></ul>
+          <div id="xp-bar-row">
+            <span id="xp-level-tag" class="level-chip">LV 0</span>
+            <div class="xp-bar"><div id="xp-fill" class="xp-fill"></div></div>
+            <span id="xp-next" class="muted"></span>
+          </div>
+          <div id="xp-levelup" class="hidden">⬆ LEVEL UP!</div>
+          <ul id="xp-unlocks"></ul>
+        </div>
         <div class="row">
           <button id="btn-back-lobby" class="btn btn-primary">Back to lobby</button>
           <button id="btn-results-leave" class="btn btn-ghost">Leave room</button>
