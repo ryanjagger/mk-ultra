@@ -49,6 +49,10 @@ input, select {
 }
 input:focus { border-color: var(--accent); }
 .code-input { text-transform: uppercase; letter-spacing: 0.4em; font-weight: 700; width: 130px; }
+/* it's type=search only to dodge password managers — hide webkit search chrome */
+.code-input::-webkit-search-decoration,
+.code-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.code-input { -webkit-appearance: none; appearance: none; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .row > .btn { flex-shrink: 0; }
 /* create-room row: laps hugs its content, track takes the slack (never crushed) */

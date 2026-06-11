@@ -17,7 +17,8 @@
       <div class="panel-row">
         <div class="card">
           <label class="field-label" for="name-input">Driver name</label>
-          <input id="name-input" maxlength="16" placeholder="Racer" autocomplete="off" />
+          <input id="name-input" name="nickname" maxlength="16" placeholder="Racer" autocomplete="off"
+            spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
           <div id="driver-row">
             <span id="driver-level" class="level-chip">LV 0</span>
             <div class="xp-bar"><div id="driver-xpfill" class="xp-fill"></div></div>
@@ -43,7 +44,10 @@
             <button id="btn-create" class="btn">Create room</button>
           </div>
           <div class="row">
-            <input id="join-code" maxlength="4" placeholder="CODE" class="code-input" autocomplete="off" />
+            <!-- type=search + the ignore attrs keep password managers away from this -->
+            <input id="join-code" type="search" name="room" maxlength="4" placeholder="CODE"
+              class="code-input" autocomplete="off" autocorrect="off" autocapitalize="characters"
+              spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <button id="btn-join" class="btn">Join</button>
           </div>
           <p id="home-error" class="error hidden"></p>
