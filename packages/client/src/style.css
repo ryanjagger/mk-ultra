@@ -49,8 +49,11 @@ input, select {
 }
 input:focus { border-color: var(--accent); }
 .code-input { text-transform: uppercase; letter-spacing: 0.4em; font-weight: 700; width: 130px; }
-.row { display: flex; gap: 10px; align-items: center; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .row > .btn { flex-shrink: 0; }
+/* create-room row: laps hugs its content, track takes the slack (never crushed) */
+#create-laps { width: auto; flex: 0 0 auto; }
+#create-track { width: auto; flex: 1 1 150px; min-width: 150px; }
 .check { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); white-space: nowrap; }
 .check input { width: auto; }
 .divider { height: 1px; background: var(--panel-border); margin: 4px 0; }

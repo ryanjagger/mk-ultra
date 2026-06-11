@@ -11,6 +11,7 @@ import {
   ITEM_NONE,
   PHASE_COUNTDOWN,
   PHASE_RACING,
+  PHASE_FINISHED,
   COUNTDOWN_TICKS,
   MAX_SPEED,
   BOOST_CAP,
@@ -246,9 +247,12 @@ export class AudioEngine {
   private updateEngineVoice(st: GameState, you: number): void {
     const me = st.karts[you]!;
     const t = this.ctx!.currentTime;
-    const speed = Math.hypot(fxToFloat(me.vx), fxToFloat(me.vy));
+    // the world FREEZES at race end (velocities stay non-zero in state), and a
+    // finished kart coasts — silence the drivetrain in both cases
+    const over = st.phase === PHASE_FINISHED || me.finishTick >= 0;
+    const speed = over ? 0 : Math.hypot(fxToFloat(me.vx), fxToFloat(me.vy));
     const norm = Math.min(1, speed / (fxToFloat(MAX_SPEED) * 1.42));
-    const boosting = me.boostTicks > 0;
+    const boosting = !over && me.boostTicks > 0;
 
     // motor whine: quadratic rise feels like an EV pulling — wide sweep,
     // shimmer riding just past an octave above so the partials beat slightly
