@@ -15,6 +15,70 @@ padded one.
 
 ---
 
+## 2026-06-11
+
+### Progress
+
+- Graphics overhaul shipped and deployed (`f31067c`, deploy `0bac9c26`):
+  item cubes became extruded shield badges (modeled from a reference image),
+  a bloom pipeline (EffectComposer → UnrealBloomPass → OutputPass), pooled
+  particle systems (tier-colored drift spark spray, boost ember trail, dirt
+  dust), skid-mark decals, a radial speed-lines shader pass, spin-out camera
+  shake, real per-track PCF shadows (fake blob shadow deleted), and ambient
+  weather per theme — snow on Glacier, wind dust on Canyon, HDR fireflies +
+  breathing neon pylons on Neon Gauntlet. All render-layer; the only sim
+  edit is an optional render-only `TrackTheme.weather` string.
+- Small UX fixes: menu screens no longer text-selectable (`45823aa`),
+  morning session fixed password managers grabbing the room-code field and
+  the drivetrain droning past the finish line.
+- Verified the way items v2 was: bot races on all four tracks locally, then
+  a production smoke race after each deploy.
+
+### AI interactions that accelerated learning
+
+- **Bloom without re-tuning the art: threshold 1.0 + overdrive.** Setting the
+  bloom threshold to exactly 1.0 means no normally-lit pixel can ever bloom —
+  day tracks render identically to before — and anything that *should* glow
+  is pushed into HDR (`color.multiplyScalar(2.2)`, emissive intensity > 2).
+  One principle replaced what would have been per-material tuning across
+  four themes.
+- **The debug hook is a test harness.** TS `private` is compile-time only,
+  so `window.__mk.controller.keyboard.sample = () => mask` drives the real
+  kart through the real input path from the browser console. Drift sparks,
+  skids and speed lines were all verified this way — no test scaffolding
+  built, nothing committed.
+- **Poll state, don't screenshot-roulette.** Timing screenshots against a
+  racing kart wasted several rounds; polling `__mk` sim state (boostTicks,
+  driftDir) from a shell loop and screenshotting on the transition caught
+  the effect every time.
+- **Flash lives in data, not code.** Weather became one optional render-only
+  field on `TrackTheme` — the determinism lint, sim gates and protocol are
+  untouched, and the next track gets atmosphere by adding one word.
+
+### Challenges → solutions
+
+- **"I don't see the shield" — wrong artifact, not wrong code.** The change
+  was verified on the Vite dev server, but the user was on `:8080`, which
+  serves the last `pnpm build` — bundle mtime 17:09, source edit 17:26,
+  server start 17:31 told the whole story. Fix: rebuild (the running server
+  serves from disk, no restart needed). Lesson: with three copies of the
+  client (dev :5173, built :8080, prod), check *which one* is being looked
+  at before debugging the code.
+- **Per-frame color writes clobber HDR setup.** The drift sparks were given
+  an HDR color at construction, but the update loop re-`set()` the tier
+  color every frame, silently dropping the multiplier. Caught only by
+  reading the update path after editing the constructor. Lesson: an
+  overdriven color must be applied at the *last* write site, not the first.
+- **Effects the bot can't trigger are hard to verify.** The greedy autodriver
+  never drifts, and open-loop scripted input (timed drift masks) kept
+  pinning the kart on walls below `DRIFT_MIN_SPEED`, so nothing fired. What
+  worked: a closed-loop sampler reading live sim state (auto-reverse when
+  stuck), and finally just forcing `boostTicks` in local state — safe in a
+  solo room because with no peers there are no rollbacks and no hash
+  cross-checks. Lesson: solo-room state is freely pokeable for render-layer
+  verification; multiplayer determinism rules don't apply to an audience of
+  one.
+
 ## 2026-06-10
 
 ### Progress
