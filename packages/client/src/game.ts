@@ -13,8 +13,11 @@ import {
   fxToFloat,
   hashState,
   computePlacements,
+  getTrack,
+  onDirt,
   type RaceConfig,
   type GameState,
+  type TrackRuntime,
 } from '@mk/sim';
 import { HASH_INTERVAL } from '@mk/shared';
 import type { Net } from './net.js';
@@ -32,6 +35,7 @@ export interface KartRender {
   driftCharge: number;
   spinTicks: number;
   finished: boolean;
+  onDirt: boolean;
 }
 
 const TWO_PI = Math.PI * 2;
@@ -47,7 +51,7 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
-function snapshotKarts(state: GameState): KartRender[] {
+function snapshotKarts(state: GameState, track: TrackRuntime): KartRender[] {
   return state.karts.map((k) => ({
     x: fxToFloat(k.x),
     z: -fxToFloat(k.y), // sim y (north) -> three -z
@@ -58,6 +62,7 @@ function snapshotKarts(state: GameState): KartRender[] {
     driftCharge: k.driftCharge,
     spinTicks: k.spinTicks,
     finished: k.finishTick >= 0,
+    onDirt: track.hasDirt && onDirt(track, k.x, k.y),
   }));
 }
 
@@ -74,6 +79,7 @@ export class RaceController {
   desyncFrame: number | null = null;
   stalled = false;
 
+  private trackRt: TrackRuntime;
   private prevKarts: KartRender[];
   private currKarts: KartRender[];
   /** visually smoothed karts (remote pops from rollback get eased out) */
@@ -104,9 +110,10 @@ export class RaceController {
     this.you = opts.you;
     this.names = opts.names;
     this.startAtMs = opts.startAtMs;
-    this.prevKarts = snapshotKarts(this.session.state);
-    this.currKarts = snapshotKarts(this.session.state);
-    this.visualKarts = snapshotKarts(this.session.state);
+    this.trackRt = getTrack(opts.trackId);
+    this.prevKarts = snapshotKarts(this.session.state, this.trackRt);
+    this.currKarts = snapshotKarts(this.session.state, this.trackRt);
+    this.visualKarts = snapshotKarts(this.session.state, this.trackRt);
   }
 
   get state(): GameState {
@@ -162,12 +169,12 @@ export class RaceController {
         this.stalled = true;
         break;
       }
-      this.currKarts = snapshotKarts(this.session.state);
+      this.currKarts = snapshotKarts(this.session.state, this.trackRt);
       advances++;
     }
     // apply any corrections that arrived while we were paced out
     this.session.applyCorrections();
-    if (advances > 0) this.currKarts = snapshotKarts(this.session.state);
+    if (advances > 0) this.currKarts = snapshotKarts(this.session.state, this.trackRt);
 
     this.alpha = Math.min(Math.max(elapsedTicks - this.session.frame + 1, 0), 1);
     this.sendHashes();
@@ -214,6 +221,7 @@ export class RaceController {
       v.driftCharge = c.driftCharge;
       v.spinTicks = c.spinTicks;
       v.finished = c.finished;
+      v.onDirt = c.onDirt;
     }
     return this.visualKarts;
   }

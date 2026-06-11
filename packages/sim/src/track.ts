@@ -41,6 +41,8 @@ export interface TrackTheme {
   wallB: string;
   decor: 'trees' | 'cacti' | 'neon' | 'snow';
   night?: boolean;
+  /** ambient particle field, render-only */
+  weather?: 'snow' | 'dust' | 'fireflies';
 }
 
 export interface TrackDefVertex {

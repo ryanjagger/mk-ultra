@@ -105,6 +105,7 @@ const CANYON_SPRINT: TrackDef = {
     wallA: '#b4502e',
     wallB: '#e8d7b0',
     decor: 'cacti',
+    weather: 'dust',
   },
 };
 
@@ -157,6 +158,7 @@ const NEON_GAUNTLET: TrackDef = {
     wallB: '#21e6c1',
     decor: 'neon',
     night: true,
+    weather: 'fireflies',
   },
 };
 
@@ -203,6 +205,7 @@ const GLACIER_GP: TrackDef = {
     wallA: '#3a76c4',
     wallB: '#ffffff',
     decor: 'snow',
+    weather: 'snow',
   },
 };
 
