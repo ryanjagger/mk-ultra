@@ -18,6 +18,7 @@ import {
 } from '@mk/shared';
 import { MAX_PLAYERS, TRACKS, isTrackId } from '@mk/sim';
 import { randomInt } from 'node:crypto';
+import type { Leaderboards } from './leaderboard.js';
 
 export interface Conn {
   send(msg: ServerMsg): void;
@@ -28,6 +29,8 @@ export interface PlayerCtx {
   name: string;
   style: PlayerStyle;
   room: Room | null;
+  /** last accepted leaderboard submission (rate limiting) */
+  lastSubmitMs?: number;
 }
 
 interface Seat {
@@ -90,6 +93,8 @@ const HASH_RETENTION_FRAMES = 3600;
 
 export class GameLobby {
   readonly rooms = new Map<string, Room>();
+
+  constructor(private readonly leaderboards: Leaderboards | null = null) {}
 
   private genCode(): string {
     for (;;) {
@@ -255,6 +260,56 @@ export class GameLobby {
         const room = ctx.room;
         if (!room || room.state !== 'racing') return;
         this.endRace(room, msg.placements);
+        return;
+      }
+      case 'submitTime': {
+        if (!this.leaderboards) return;
+        // verification replays a whole race — keep it off the hot path
+        const now = Date.now();
+        if (ctx.lastSubmitMs !== undefined && now - ctx.lastSubmitMs < 5000) {
+          ctx.conn.send({ t: 'error', message: 'Easy — one submission every few seconds' });
+          return;
+        }
+        ctx.lastSubmitMs = now;
+        const rank = this.leaderboards.submit(msg.name, msg.trackId, msg.laps, msg.inputs);
+        if (rank === null) {
+          ctx.conn.send({ t: 'error', message: 'Run failed verification' });
+          return;
+        }
+        ctx.conn.send({
+          t: 'leaderboard',
+          trackId: msg.trackId,
+          laps: msg.laps,
+          entries: this.leaderboards.top(msg.trackId, msg.laps),
+          yourRank: rank,
+        });
+        return;
+      }
+      case 'getLeaderboard': {
+        if (!this.leaderboards) return;
+        ctx.conn.send({
+          t: 'leaderboard',
+          trackId: msg.trackId,
+          laps: msg.laps,
+          entries: this.leaderboards.top(msg.trackId, msg.laps),
+        });
+        return;
+      }
+      case 'getGhost': {
+        if (!this.leaderboards) return;
+        const entry = this.leaderboards.ghost(msg.trackId, msg.laps, msg.rank);
+        if (!entry) {
+          ctx.conn.send({ t: 'error', message: 'No ghost at that rank' });
+          return;
+        }
+        ctx.conn.send({
+          t: 'ghostData',
+          trackId: msg.trackId,
+          laps: msg.laps,
+          name: entry.name,
+          timeMs: entry.timeMs,
+          inputs: entry.rle,
+        });
         return;
       }
       case 'getReplay': {

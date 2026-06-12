@@ -3,6 +3,7 @@ import {
   PHASE_FINISHED,
   PHASE_COUNTDOWN,
   COUNTDOWN_TICKS,
+  TICK_RATE,
   REV_PERFECT_TICKS,
   REV_OK_TICKS,
   DRIFT_TIER1_TICKS,
@@ -22,6 +23,7 @@ import { ClockSync } from './clock.js';
 import { Keyboard } from './keyboard.js';
 import { RaceController, type RaceLike } from './game.js';
 import { TimeTrialController } from './timetrial.js';
+import { TT_SEED, type GhostRecord } from './ghosts.js';
 import { ReplayController, type ReplayData } from './replay.js';
 import { GameScene, KART_COLORS, defaultLook, type KartLook } from './scene.js';
 import { AudioEngine } from './audio.js';
@@ -471,16 +473,59 @@ net.on('raceStart', (msg) => {
 const netRace = (): RaceController | null =>
   controller instanceof RaceController ? controller : null;
 
+// ------------------------------------------------- world leaderboards ----
+
+/** name shown over a downloaded rival ghost (set before startTimeTrial) */
+let rivalGhostName: string | null = null;
+
+net.on('leaderboard', (msg) => {
+  // only decorate the results screen for the matching time trial
+  const tt = controller instanceof TimeTrialController ? controller : null;
+  if (!tt || tt.trackId !== msg.trackId || tt.laps !== msg.laps) return;
+  const box = $('tt-lb');
+  const ol = $('tt-lb-list');
+  ol.innerHTML = '';
+  box.classList.toggle('hidden', msg.entries.length === 0);
+  msg.entries.forEach((e, i) => {
+    const li = document.createElement('li');
+    const nm = document.createElement('span');
+    nm.textContent = `${e.name}${msg.yourRank === i ? ' (you)' : ''}`;
+    const time = document.createElement('span');
+    time.className = 'rtime';
+    time.textContent = fmtTime(e.timeMs / 1000);
+    li.append(nm, time);
+    ol.appendChild(li);
+  });
+  $('btn-race-record').classList.toggle('hidden', msg.entries.length === 0);
+});
+
+net.on('ghostData', (msg) => {
+  // turn the downloaded run into a ghost and line up against it
+  rivalGhostName = `${msg.name} ${fmtTime(msg.timeMs / 1000)}`;
+  startTimeTrial(msg.trackId, msg.laps, {
+    v: 1,
+    trackId: msg.trackId,
+    laps: msg.laps,
+    seed: TT_SEED,
+    finishTick: COUNTDOWN_TICKS + Math.round((msg.timeMs / 1000) * TICK_RATE),
+    rle: msg.inputs,
+  });
+});
+
+$('btn-race-record').addEventListener('click', () => {
+  if (ttParams) net.send({ t: 'getGhost', trackId: ttParams.trackId, laps: ttParams.laps, rank: 0 });
+});
+
 // -------------------------------------------------------- time trial ----
 
-function startTimeTrial(trackChoice: string, laps: number): void {
+function startTimeTrial(trackChoice: string, laps: number, ghostOverride?: GhostRecord): void {
   const trackId =
     trackChoice === RANDOM_TRACK
       ? TRACKS[Math.floor(Math.random() * TRACKS.length)]!.def.id
       : trackChoice;
   ttParams = { trackId, laps };
   scene.setTrack(getTrack(trackId));
-  const tt = new TimeTrialController(keyboard, { trackId, laps }, botMode);
+  const tt = new TimeTrialController(keyboard, { trackId, laps, ghostOverride }, botMode);
   controller = tt;
   (window as { __mk?: unknown }).__mk = { controller };
   audio.reset();
@@ -493,7 +538,11 @@ function startTimeTrial(trackChoice: string, laps: number): void {
   $('hud-desync').classList.add('hidden');
   $('hud-pos-of').textContent = '/1';
   scene.setupKarts([null], [lookOf(myStyle(), 0)]);
-  if (tt.hasGhost) scene.setupGhost(`BEST ${fmtTime(tt.bestSec!)}`);
+  if (tt.hasGhost) {
+    scene.setupGhost(
+      ghostOverride ? `👻 ${rivalGhostName ?? 'RIVAL'}` : `BEST ${fmtTime(tt.bestSec!)}`,
+    );
+  }
   const best = $('hud-best');
   best.textContent = tt.bestSec !== null ? `BEST ${fmtTime(tt.bestSec)}` : 'first run — set a record';
   best.classList.remove('hidden');
@@ -630,6 +679,20 @@ function showResults(): void {
         : tt.result.isRecord
           ? `Previous best ${fmtTime(tt.result.bestSec)} — your ghost just got faster.`
           : `Best ${fmtTime(tt.result.bestSec)} — the ghost lives another run.`;
+    // world leaderboard: submit the run (server re-simulates to verify),
+    // the response carries the board
+    $('tt-lb').classList.add('hidden');
+    if (tt.finishedRle && !botMode) {
+      net.send({
+        t: 'submitTime',
+        name: playerName(),
+        trackId: tt.trackId,
+        laps: tt.laps,
+        inputs: tt.finishedRle,
+      });
+    } else {
+      net.send({ t: 'getLeaderboard', trackId: tt.trackId, laps: tt.laps });
+    }
   }
 
   if (feats && !raceAward && controller instanceof RaceController) {

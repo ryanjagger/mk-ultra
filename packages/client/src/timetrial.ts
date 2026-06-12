@@ -44,6 +44,8 @@ export class TimeTrialController implements RaceLike {
   readonly laps: number;
   /** set once, the frame the run finishes */
   result: TimeTrialResult | null = null;
+  /** the finished run's input stream — leaderboard submission payload */
+  finishedRle: [number, number][] | null = null;
 
   private readonly track: TrackRuntime;
   private startAt: number;
@@ -61,7 +63,7 @@ export class TimeTrialController implements RaceLike {
 
   constructor(
     private readonly keyboard: Keyboard,
-    opts: { trackId: string; laps: number },
+    opts: { trackId: string; laps: number; ghostOverride?: GhostRecord },
     private readonly bot = false,
   ) {
     this.trackId = opts.trackId;
@@ -73,7 +75,8 @@ export class TimeTrialController implements RaceLike {
       playerCount: 1,
       trackId: opts.trackId,
     });
-    this.ghost = loadGhost(opts.trackId, opts.laps);
+    // a downloaded leaderboard ghost replaces the local best for this run
+    this.ghost = opts.ghostOverride ?? loadGhost(opts.trackId, opts.laps);
     if (this.ghost) {
       this.ghostSim = createGameState({
         seed: this.ghost.seed,
@@ -141,6 +144,8 @@ export class TimeTrialController implements RaceLike {
     const ft = this.state.karts[0]!.finishTick;
     const bestSec = this.bestSec;
     const isRecord = this.ghost === null || ft < this.ghost.finishTick;
+    const rle = encodeRle(this.recorded.slice(0, ft));
+    this.finishedRle = rle;
     if (isRecord) {
       saveGhost({
         v: 1,
@@ -148,7 +153,7 @@ export class TimeTrialController implements RaceLike {
         laps: this.laps,
         seed: TT_SEED,
         finishTick: ft,
-        rle: encodeRle(this.recorded.slice(0, ft)),
+        rle,
       });
     }
     this.result = {

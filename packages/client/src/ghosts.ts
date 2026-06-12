@@ -9,11 +9,8 @@
  * compresses to a few hundred pairs.
  */
 
-import { encodeRle, decodeRle } from '@mk/shared';
-export { encodeRle, decodeRle };
-
-/** Fixed time-trial seed so every run of a track sees identical item rolls. */
-export const TT_SEED = 0x77575;
+import { encodeRle, decodeRle, TT_SEED } from '@mk/shared';
+export { encodeRle, decodeRle, TT_SEED };
 
 export interface GhostRecord {
   v: 1;

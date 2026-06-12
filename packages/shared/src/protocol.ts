@@ -29,6 +29,25 @@ export const RANDOM_TRACK = 'random';
 const gameMode = z.enum(['race', 'battle']);
 export type GameMode = z.infer<typeof gameMode>;
 
+/**
+ * Fixed time-trial seed: every run of a track sees identical item rolls, so
+ * leaderboard times are comparable — and the server can re-simulate any
+ * submitted input stream to verify the claimed time (cheat-proof by
+ * determinism).
+ */
+export const TT_SEED = 0x77575;
+
+/** RLE input stream: [mask, runLength] pairs from tick 0. */
+const rleInputs = z
+  .array(z.tuple([inputMask, z.number().int().min(1).max(MAX_FRAME)]))
+  .max(20_000);
+
+export const LeaderboardEntrySchema = z.object({
+  name,
+  timeMs: z.number().int().min(0),
+});
+export type LeaderboardEntry = z.infer<typeof LeaderboardEntrySchema>;
+
 export const MAX_LEVEL = 99;
 /**
  * Cosmetic identity a player carries into rooms. Ids are shape-only here
@@ -78,6 +97,26 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
     placements: z.array(z.number().int().min(0).max(3)).max(4).optional(),
   }),
   z.object({ t: z.literal('getReplay') }), // last finished race of my room
+  // time-trial leaderboards: submissions are input recordings the server
+  // re-simulates before accepting (seed is always TT_SEED)
+  z.object({
+    t: z.literal('submitTime'),
+    name,
+    trackId: trackChoice,
+    laps: z.number().int().min(1).max(MAX_LAPS),
+    inputs: rleInputs,
+  }),
+  z.object({
+    t: z.literal('getLeaderboard'),
+    trackId: trackChoice,
+    laps: z.number().int().min(1).max(MAX_LAPS),
+  }),
+  z.object({
+    t: z.literal('getGhost'),
+    trackId: trackChoice,
+    laps: z.number().int().min(1).max(MAX_LAPS),
+    rank: z.number().int().min(0).max(9),
+  }),
   z.object({ t: z.literal('ping'), pt: z.number() }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsgSchema>;
@@ -155,6 +194,22 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
       .min(1)
       .max(4),
   }),
+  z.object({
+    t: z.literal('leaderboard'),
+    trackId: trackChoice,
+    laps: z.number().int().min(1).max(MAX_LAPS),
+    entries: z.array(LeaderboardEntrySchema).max(10),
+    /** present when answering a submission: your rank, or -1 if off the board */
+    yourRank: z.number().int().min(-1).max(9).optional(),
+  }),
+  z.object({
+    t: z.literal('ghostData'),
+    trackId: trackChoice,
+    laps: z.number().int().min(1).max(MAX_LAPS),
+    name,
+    timeMs: z.number().int().min(0),
+    inputs: rleInputs,
+  }),
   z.object({ t: z.literal('dropped'), p: z.number().int().min(0).max(3), fromFrame: frame }),
   z.object({ t: z.literal('desync'), frame, detail: z.string().max(200) }),
   z.object({ t: z.literal('pong'), pt: z.number(), now: z.number() }),
@@ -164,7 +219,8 @@ export type ServerMsg = z.infer<typeof ServerMsgSchema>;
 
 /** Parse + validate an inbound client->server message; null if invalid. */
 export function parseClientMsg(raw: unknown): ClientMsg | null {
-  if (typeof raw !== 'string' || raw.length > 2048) return null;
+  // generous cap: leaderboard submissions carry a whole run's RLE inputs
+  if (typeof raw !== 'string' || raw.length > 262_144) return null;
   let json: unknown;
   try {
     json = JSON.parse(raw);

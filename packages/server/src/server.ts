@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { parseClientMsg, DEFAULT_STYLE, type ServerMsg } from '@mk/shared';
 import { GameLobby, type PlayerCtx } from './rooms.js';
+import { Leaderboards } from './leaderboard.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -50,7 +51,8 @@ export interface GameServer {
 }
 
 export function createGameServer(port: number): Promise<GameServer> {
-  const lobby = new GameLobby();
+  const dataDir = process.env.DATA_DIR ?? join(process.cwd(), 'data');
+  const lobby = new GameLobby(new Leaderboards(dataDir));
   const clientDist = resolveClientDist();
   if (clientDist) console.log(`serving client from ${clientDist}`);
   else console.warn('no client build found — API/WS only');
