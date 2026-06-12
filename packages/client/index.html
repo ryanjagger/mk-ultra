@@ -24,16 +24,9 @@
             <div class="xp-bar"><div id="driver-xpfill" class="xp-fill"></div></div>
             <button id="btn-garage" class="btn btn-ghost">🏎 Garage</button>
           </div>
-          <div id="garage-panel" class="hidden">
-            <h4>Livery</h4>
-            <div id="garage-liveries" class="garage-row"></div>
-            <h4>Boost flame</h4>
-            <div id="garage-flames" class="garage-row"></div>
-          </div>
           <button id="btn-quick" class="btn btn-primary">⚡ Quick Play</button>
           <div class="divider"></div>
           <div class="row">
-            <label class="check"><input type="checkbox" id="create-public" checked /> Public</label>
             <select id="create-laps">
               <option value="1">1 lap</option>
               <option value="2">2 laps</option>
@@ -41,18 +34,27 @@
               <option value="5">5 laps</option>
             </select>
             <select id="create-track"></select>
+            <label class="check"><input type="checkbox" id="create-public" checked /> Public</label>
+          </div>
+          <div class="row">
             <button id="btn-create" class="btn">Create room</button>
-          </div>
-          <div class="row">
-            <button id="btn-timetrial" class="btn">⏱ Time Trial</button>
-            <span class="muted tt-hint">solo · race your best lap's ghost</span>
-          </div>
-          <div class="row">
             <!-- type=search + the ignore attrs keep password managers away from this -->
             <input id="join-code" type="search" name="room" maxlength="4" placeholder="CODE"
               class="code-input" autocomplete="off" autocorrect="off" autocapitalize="characters"
               spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <button id="btn-join" class="btn">Join</button>
+          </div>
+          <div class="row">
+            <button id="btn-timetrial" class="btn">⏱ Time Trial</button>
+            <span class="muted tt-hint">solo · race your best lap's ghost</span>
+          </div>
+          <!-- garage lives below the actions: opening it never displaces play -->
+          <div id="garage-panel" class="hidden">
+            <div class="divider"></div>
+            <h4>Livery</h4>
+            <div id="garage-liveries" class="garage-row"></div>
+            <h4>Boost flame</h4>
+            <div id="garage-flames" class="garage-row"></div>
           </div>
           <p id="home-error" class="error hidden"></p>
         </div>
@@ -101,7 +103,10 @@
       <div id="hud-time">0:00.00</div>
       <div id="hud-best" class="hidden"></div>
       <div id="hud-speed">0</div>
-      <div id="hud-drift"><div id="hud-drift-fill"></div></div>
+      <div id="hud-drift" class="hidden">
+        <div id="hud-drift-fill"></div>
+        <span id="hud-drift-label">DRIFT</span>
+      </div>
       <div id="hud-boost" class="hidden">BOOST!</div>
       <div id="hud-item" class="hidden"><span id="hud-item-icon"></span><span id="hud-item-key">E</span></div>
       <div id="hud-countdown" class="hidden"></div>
@@ -109,6 +114,12 @@
       <div id="hud-finallap" class="hidden">FINAL LAP!</div>
       <div id="hud-wrongway" class="hidden">⟲ WRONG WAY</div>
       <div id="hud-replay" class="hidden">▶ REPLAY · 1–4 switch kart · ESC exit</div>
+      <div id="hud-keys">
+        <span><b>WASD</b> drive</span>
+        <span><b>SPACE</b> drift · charge boost</span>
+        <span><b>E</b> use item</span>
+        <span><b>R</b> look back</span>
+      </div>
       <div id="hud-mute">🔊</div>
       <div id="hud-wait" class="hidden">⏳ waiting for players…</div>
       <div id="hud-desync" class="hidden"></div>

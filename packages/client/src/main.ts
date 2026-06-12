@@ -225,6 +225,7 @@ $('btn-garage').addEventListener('click', () => {
   const panel = $('garage-panel');
   const opening = panel.classList.contains('hidden');
   panel.classList.toggle('hidden', !opening);
+  $('btn-garage').textContent = opening ? '✕ Close garage' : '🏎 Garage';
   if (opening) renderGarage();
 });
 renderDriver();
@@ -571,12 +572,14 @@ function startReplay(data: ReplayData): void {
   $('hud-pos-of').textContent = `/${data.players.length}`;
   $('hud-best').classList.add('hidden');
   $('hud-replay').classList.remove('hidden');
+  $('hud-keys').classList.add('hidden'); // nobody is driving a replay
   showScreen('race');
 }
 
 function exitReplay(): void {
   if (!(controller instanceof ReplayController)) return;
   $('hud-replay').classList.add('hidden');
+  $('hud-keys').classList.remove('hidden');
   controller = finishedRace;
   finishedRace = null;
   (window as { __mk?: unknown }).__mk = { controller };
@@ -945,6 +948,8 @@ function updateHud(): void {
   const kart = controller.renderKarts(0)[controller.you]!;
   $('hud-speed').textContent = String(Math.round(kart.speed * 60 * 3.6));
 
+  // the meter only appears while a drift is charging (empty bar teaches nothing)
+  $('hud-drift').classList.toggle('hidden', me.driftDir === 0 && me.driftCharge === 0);
   const fill = $('hud-drift-fill');
   const pct = Math.min(1, me.driftCharge / DRIFT_TIER2_TICKS);
   fill.style.width = `${pct * 100}%`;
