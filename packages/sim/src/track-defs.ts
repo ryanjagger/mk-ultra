@@ -261,10 +261,67 @@ const SUMMIT_PASS: TrackDef = {
   },
 };
 
+/**
+ * Mesa Drop — desert night. A long climb to the mesa top, then a launch
+ * ramp fires you down the descent: the road falls away beneath the jump.
+ * A second hop on the start straight clears the oil-bait pinch.
+ */
+const MESA_DROP: TrackDef = {
+  id: 'mesa-drop',
+  name: 'Mesa Drop',
+  verts: [
+    { x: -40, y: -70, w: 8, dirt: 5 }, // 0: start, valley floor (flat)
+    { x: 10, y: -70, w: 8, dirt: 5 },
+    { x: 55, y: -62, w: 8, dirt: 4 }, // 2: turn one, the climb begins
+    { x: 88, y: -38, w: 8, dirt: 3, h: 3 },
+    { x: 102, y: -5, w: 8, h: 6.5 }, // walled climbing sweep
+    { x: 95, y: 28, w: 7, dirt: 3, h: 10 },
+    { x: 70, y: 50, w: 7, h: 12.5 }, // 6: mesa rim
+    { x: 38, y: 60, w: 7, h: 14 }, // 7: mesa top — the big ramp
+    { x: 4, y: 56, w: 8, dirt: 4, h: 12 }, // landing zone, descent begins
+    { x: -28, y: 44, w: 8, dirt: 4, h: 8 },
+    { x: -52, y: 24, w: 6, h: 5 }, // 10: walled downhill ess
+    { x: -80, y: 30, w: 6, h: 6 }, // counter-rise kicker
+    { x: -100, y: 8, w: 7, dirt: 3, h: 4 },
+    { x: -106, y: -24, w: 7, dirt: 3, h: 1.5 },
+    { x: -86, y: -50, w: 8, dirt: 4 }, // back on the valley floor
+    { x: -58, y: -66, w: 8, dirt: 5 },
+  ],
+  checkpointVerts: [0, 2, 4, 6, 8, 10, 12, 14],
+  itemVerts: [1, 8, 12],
+  boostPads: [
+    { vert: 6, t: 0.5 }, // rim run-up: hit the big ramp flat out
+    { vert: 15, t: 0.5 },
+  ],
+  ramps: [
+    { vert: 7, t: 0.5, halfLen: 1.7, halfWid: 3, power: 0.2 }, // the drop
+    { vert: 1, t: 0.35, halfLen: 1.6, halfWid: 1.6 }, // optional valley hop
+  ],
+  spawns: [
+    [-45, -72.4, 0],
+    [-45, -67.6, 0],
+    [-49, -72.4, 0],
+    [-49, -67.6, 0],
+  ],
+  theme: {
+    sky: '#1a1430',
+    fog: '#241c3e',
+    ground: '#7a5c3e',
+    asphalt: '#3a3f4a',
+    dirt: '#9c7a4d',
+    wallA: '#e0762e',
+    wallB: '#f0e4d0',
+    decor: 'cacti',
+    night: true,
+    weather: 'dust',
+  },
+};
+
 export const TRACK_DEFS: readonly TrackDef[] = [
   SUNNY_CIRCUIT,
   CANYON_SPRINT,
   NEON_GAUNTLET,
   GLACIER_GP,
   SUMMIT_PASS,
+  MESA_DROP,
 ];

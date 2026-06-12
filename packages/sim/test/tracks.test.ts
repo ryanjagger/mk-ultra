@@ -101,6 +101,9 @@ describe.each(TRACKS.map((t) => [t.def.id, t] as [string, TrackRuntime]))(
       for (const p of track.boostPads) {
         expect(onDirt(track, p.cx, p.cy), 'pad off asphalt').toBe(false);
       }
+      for (const r of track.ramps) {
+        expect(onDirt(track, r.cx, r.cy), 'ramp off asphalt').toBe(false);
+      }
     });
 
     it('has forward-facing, non-degenerate gates', () => {
