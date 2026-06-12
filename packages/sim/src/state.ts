@@ -52,6 +52,7 @@ export interface KartState {
   finishTick: number; // -1 until finished
   heldItem: number; // ITEM_NONE or an ITEM_* type (items.ts)
   spinTicks: number; // spin-out remaining; controls locked while > 0
+  revTicks: number; // accel held during countdown (launch-boost timing)
 }
 
 /** Fired shell. Slot is live while ttl > 0; pool length is always MAX_SHELLS. */
@@ -90,7 +91,7 @@ export interface GameState {
   oils: OilState[]; // fixed length MAX_OILS
 }
 
-const KART_INTS = 13;
+const KART_INTS = 14;
 const GLOBAL_INTS = 4;
 const SHELL_INTS = 7;
 const OIL_INTS = 4;
@@ -126,6 +127,7 @@ export function createGameState(cfg: RaceConfig): GameState {
       finishTick: -1,
       heldItem: ITEM_NONE,
       spinTicks: 0,
+      revTicks: 0,
     });
   }
 
@@ -172,6 +174,7 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = k.finishTick;
     out[i++] = k.heldItem;
     out[i++] = k.spinTicks;
+    out[i++] = k.revTicks;
   }
   for (let j = 0; j < st.items.length; j++) out[i++] = st.items[j]!;
   for (const s of st.shells) {
@@ -211,6 +214,7 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     k.finishTick = arr[i++]!;
     k.heldItem = arr[i++]!;
     k.spinTicks = arr[i++]!;
+    k.revTicks = arr[i++]!;
   }
   for (let j = 0; j < st.items.length; j++) st.items[j] = arr[i++]!;
   for (const s of st.shells) {

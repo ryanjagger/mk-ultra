@@ -11,11 +11,15 @@
 import { sub, wideCross, wideDot } from './fixed.js';
 import { cosB, sinB } from './trig.js';
 import { BTN_ACCEL, BTN_BRAKE, BTN_LEFT, BTN_RIGHT, BTN_DRIFT, BTN_ITEM } from './input.js';
-import { ITEM_NONE, type GameState } from './state.js';
+import { COUNTDOWN_TICKS, ITEM_NONE, PHASE_COUNTDOWN, type GameState } from './state.js';
 
 export function botMask(st: GameState, k: number): number {
   const kart = st.karts[k];
   if (!kart || kart.finishTick >= 0) return 0;
+  // time the rev into GO like a player would (inside the perfect window)
+  if (st.phase === PHASE_COUNTDOWN) {
+    return st.tick >= COUNTDOWN_TICKS - 30 ? BTN_ACCEL : 0;
+  }
   // fire whatever we're holding shortly after pickup (cheap but lively)
   if (kart.heldItem !== ITEM_NONE && st.tick % 45 === 0) {
     return botSteer(st, k) | BTN_ITEM;

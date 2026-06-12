@@ -3,6 +3,8 @@ import {
   PHASE_FINISHED,
   PHASE_COUNTDOWN,
   COUNTDOWN_TICKS,
+  REV_PERFECT_TICKS,
+  REV_OK_TICKS,
   DRIFT_TIER1_TICKS,
   DRIFT_TIER2_TICKS,
   ITEM_NONE,
@@ -848,10 +850,18 @@ function updateHud(): void {
 
   const cd = $('hud-countdown');
   if (st.phase === PHASE_COUNTDOWN) {
-    const n = Math.ceil((COUNTDOWN_TICKS - st.tick) / 60);
-    cd.textContent = String(n);
+    const left = COUNTDOWN_TICKS - st.tick;
+    cd.textContent = String(Math.ceil(left / 60));
+    // rev cue: amber when the launch window opens, green while revving in
+    // it, red once the engine is flooded (held too long)
+    cd.style.color =
+      me.revTicks > REV_OK_TICKS ? '#ff4757'
+      : left > REV_PERFECT_TICKS ? ''
+      : me.revTicks > 0 ? '#3fd06b'
+      : '#ffd23f';
     cd.classList.remove('hidden');
   } else if (st.tick < COUNTDOWN_TICKS + 50 && st.phase !== PHASE_FINISHED) {
+    cd.style.color = '';
     cd.textContent = 'GO!';
     cd.classList.remove('hidden');
   } else {

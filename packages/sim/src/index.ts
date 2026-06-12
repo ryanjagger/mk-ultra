@@ -5,7 +5,14 @@ export * from './input.js';
 export * from './track.js';
 export * from './track-defs.js';
 export * from './state.js';
-export { stepSim, PAD_BOOST_TICKS } from './sim.js';
+export {
+  stepSim,
+  PAD_BOOST_TICKS,
+  REV_PERFECT_TICKS,
+  REV_OK_TICKS,
+  REV_BOOST_PERFECT,
+  REV_BOOST_OK,
+} from './sim.js';
 export { botMask } from './bots.js';
 export { computePlacements } from './race.js';
 export {

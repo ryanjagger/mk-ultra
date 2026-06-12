@@ -8,7 +8,7 @@
  * The world freezes once the race is over so the results screen is stable.
  */
 import { sub, wideDot, wideCross } from './fixed.js';
-import { BTN_ITEM, INPUT_NEUTRAL } from './input.js';
+import { BTN_ACCEL, BTN_ITEM, INPUT_NEUTRAL } from './input.js';
 import { stepKart, collideKarts, collideWalls } from './physics.js';
 import { stepCheckpoints, stepRacePhase } from './race.js';
 import { stepItems, stepShells, stepOils, useHeldItem } from './items.js';
@@ -24,6 +24,14 @@ import {
 
 /** Boost ticks granted while driving over a pad (re-applied every tick on it). */
 export const PAD_BOOST_TICKS = 55;
+
+// Rev the engine into GO: hold accel for the last <=REV_PERFECT countdown
+// ticks for a big launch, <=REV_OK for a modest one; any longer floods the
+// engine and the launch is lost.
+export const REV_PERFECT_TICKS = 45;
+export const REV_OK_TICKS = 90;
+export const REV_BOOST_PERFECT = 60;
+export const REV_BOOST_OK = 28;
 
 /**
  * Stateless boost pads: oriented-rectangle containment via exact wide math.
@@ -68,6 +76,20 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
   const masks: number[] = [];
   for (let i = 0; i < st.karts.length; i++) {
     masks.push(bots?.[i] ? botMask(st, i) : (inputs[i] ?? INPUT_NEUTRAL));
+  }
+
+  // countdown rev: time the throttle into GO for a launch boost
+  if (st.phase === PHASE_COUNTDOWN) {
+    for (let i = 0; i < st.karts.length; i++) {
+      const k = st.karts[i]!;
+      k.revTicks = (masks[i]! & BTN_ACCEL) !== 0 ? k.revTicks + 1 : 0;
+    }
+  } else if (st.tick === COUNTDOWN_TICKS) {
+    for (const k of st.karts) {
+      if (k.revTicks > 0 && k.revTicks <= REV_PERFECT_TICKS) k.boostTicks = REV_BOOST_PERFECT;
+      else if (k.revTicks > 0 && k.revTicks <= REV_OK_TICKS) k.boostTicks = REV_BOOST_OK;
+      k.revTicks = 0;
+    }
   }
 
   const prevX: number[] = [];
