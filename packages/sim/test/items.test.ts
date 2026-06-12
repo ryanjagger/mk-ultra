@@ -23,6 +23,9 @@ import {
   ITEM_BOOST,
   ITEM_SHELL,
   ITEM_OIL,
+  ITEM_LIGHTNING,
+  ITEM_TRIPLE_BOOST,
+  ITEM_HOMING_SHELL,
   OIL_TTL,
   OIL_ARM_TICKS,
   SPIN_OUT_TICKS,
@@ -93,7 +96,10 @@ describe('mystery boxes', () => {
     kart.y = TRACK.itemSpawns[BOX_MID]!.y;
     stepSim(st, [0]);
     expect(kart.heldItem).not.toBe(ITEM_NONE);
-    expect([ITEM_BOOST, ITEM_SHELL, ITEM_OIL]).toContain(kart.heldItem);
+    // a lone kart counts as last place and draws from the catch-up row
+    expect([ITEM_LIGHTNING, ITEM_HOMING_SHELL, ITEM_TRIPLE_BOOST, ITEM_BOOST]).toContain(
+      kart.heldItem,
+    );
     expect(isItemActive(st, BOX_MID)).toBe(false);
     expect(st.items[BOX_MID]!).toBeGreaterThan(st.tick);
     // sitting on the (inactive) box must not re-grant once the item is used later

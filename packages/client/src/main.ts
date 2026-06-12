@@ -690,7 +690,8 @@ net.connect();
 // ---------------------------------------------------------- HUD loop ----
 
 // --- held-item badge: roulette on acquisition, bump when passing boxes full-handed
-const ITEM_ICONS = ['🚀', '🐢', '🛢️']; // indexed by ITEM_BOOST/SHELL/OIL
+// indexed by item id: boost, shell, oil, lightning, triple, double, homing
+const ITEM_ICONS = ['🚀', '🐢', '🛢️', '⚡', '🚀³', '🚀²', '🎯'];
 let lastHeld = ITEM_NONE;
 let rouletteUntil = 0;
 

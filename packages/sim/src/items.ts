@@ -34,6 +34,13 @@ import { computePlacements } from './race.js';
 export const ITEM_BOOST = 0;
 export const ITEM_SHELL = 1;
 export const ITEM_OIL = 2;
+/** Spins out every other kart still racing — pure catch-up artillery. */
+export const ITEM_LIGHTNING = 3;
+/** Three boost charges; using one downgrades 3 -> 2 -> plain boost. */
+export const ITEM_TRIPLE_BOOST = 4;
+export const ITEM_DOUBLE_BOOST = 5;
+/** Shell that arcs toward the nearest kart in range. */
+export const ITEM_HOMING_SHELL = 6;
 
 const ITEM_PICKUP_RADIUS: Fx = fxConst(1.4);
 const ITEM_RESPAWN_BASE = 300; // 5s
@@ -55,12 +62,12 @@ const SPIN_SPEED_KEEP: Fx = fxConst(0.35);
 
 /**
  * Placement-weighted draw tables, one d6 row per placement band
- * (leader / midfield / tail).
+ * (leader / midfield / tail). Leaders defend, the tail gets artillery.
  */
 const ITEM_TABLE: readonly (readonly number[])[] = [
   [ITEM_OIL, ITEM_OIL, ITEM_OIL, ITEM_SHELL, ITEM_SHELL, ITEM_BOOST],
-  [ITEM_OIL, ITEM_OIL, ITEM_SHELL, ITEM_SHELL, ITEM_BOOST, ITEM_BOOST],
-  [ITEM_SHELL, ITEM_SHELL, ITEM_BOOST, ITEM_BOOST, ITEM_BOOST, ITEM_BOOST],
+  [ITEM_OIL, ITEM_SHELL, ITEM_SHELL, ITEM_HOMING_SHELL, ITEM_BOOST, ITEM_TRIPLE_BOOST],
+  [ITEM_LIGHTNING, ITEM_HOMING_SHELL, ITEM_HOMING_SHELL, ITEM_TRIPLE_BOOST, ITEM_TRIPLE_BOOST, ITEM_BOOST],
 ];
 
 export function isItemActive(st: GameState, index: number): boolean {
@@ -124,26 +131,51 @@ function placementBand(st: GameState, kartIndex: number): number {
   return rank === 0 ? 0 : 1;
 }
 
-/** Consume the held item of kart `p`. Caller gates on phase/finish/spin. */
+function fireShell(st: GameState, p: number, homing: number): void {
+  const kart = st.karts[p]!;
+  const fwdX = cosB(kart.heading);
+  const fwdY = sinB(kart.heading);
+  const s = st.shells[allocSlot(st.shells.map((x) => x.ttl))]!;
+  const off = add(add(KART_RADIUS, SHELL_RADIUS), fxConst(0.15));
+  s.ttl = SHELL_TTL;
+  s.x = clampWorld(add(kart.x, mul(fwdX, off)));
+  s.y = clampWorld(add(kart.y, mul(fwdY, off)));
+  s.vx = mul(fwdX, SHELL_SPEED);
+  s.vy = mul(fwdY, SHELL_SPEED);
+  s.owner = p;
+  s.bounces = 0;
+  s.homing = homing;
+}
+
+/** Re-press delay so multi-charge items need distinct button presses. */
+export const ITEM_REUSE_TICKS = 18;
+
+/** Consume the held item of kart `p`. Caller gates on phase/finish/spin/cooldown. */
 export function useHeldItem(st: GameState, p: number): void {
   const kart = st.karts[p]!;
   const item = kart.heldItem;
   if (item === ITEM_NONE) return;
   kart.heldItem = ITEM_NONE;
+  kart.itemCooldown = ITEM_REUSE_TICKS;
   const fwdX = cosB(kart.heading);
   const fwdY = sinB(kart.heading);
-  if (item === ITEM_BOOST) {
+  if (item === ITEM_BOOST || item === ITEM_TRIPLE_BOOST || item === ITEM_DOUBLE_BOOST) {
     kart.boostTicks = Math.min(kart.boostTicks + ITEM_BOOST_TICKS, BOOST_CAP);
+    // triple/double boosts keep their remaining charges in hand
+    if (item === ITEM_TRIPLE_BOOST) kart.heldItem = ITEM_DOUBLE_BOOST;
+    else if (item === ITEM_DOUBLE_BOOST) kart.heldItem = ITEM_BOOST;
   } else if (item === ITEM_SHELL) {
-    const s = st.shells[allocSlot(st.shells.map((x) => x.ttl))]!;
-    const off = add(add(KART_RADIUS, SHELL_RADIUS), fxConst(0.15));
-    s.ttl = SHELL_TTL;
-    s.x = clampWorld(add(kart.x, mul(fwdX, off)));
-    s.y = clampWorld(add(kart.y, mul(fwdY, off)));
-    s.vx = mul(fwdX, SHELL_SPEED);
-    s.vy = mul(fwdY, SHELL_SPEED);
-    s.owner = p;
-    s.bounces = 0;
+    fireShell(st, p, 0);
+  } else if (item === ITEM_HOMING_SHELL) {
+    fireShell(st, p, 1);
+  } else if (item === ITEM_LIGHTNING) {
+    // thunder for everyone else still racing
+    for (let i = 0; i < st.karts.length; i++) {
+      if (i === p) continue;
+      const other = st.karts[i]!;
+      if (other.finishTick >= 0 || other.spinTicks > 0) continue;
+      spinOut(other);
+    }
   } else if (item === ITEM_OIL) {
     const o = st.oils[allocSlot(st.oils.map((x) => x.ttl))]!;
     const off = add(add(KART_RADIUS, OIL_RADIUS), fxConst(0.15));
@@ -183,12 +215,47 @@ function bounceShell(st: GameState, s: ShellState): boolean {
   return bounced;
 }
 
+const HOMING_RANGE: Fx = fxConst(28);
+const HOMING_TURN: Fx = fxConst(0.18); // velocity blend toward the target per tick
+
+/** Arc a homing shell toward the nearest eligible kart (index breaks ties). */
+function steerShell(st: GameState, s: ShellState): void {
+  let bx: Fx = 0;
+  let by: Fx = 0;
+  let bestD: Fx = 0x7fffffff;
+  for (let p = 0; p < st.karts.length; p++) {
+    if (p === s.owner && s.bounces === 0) continue;
+    const kart = st.karts[p]!;
+    if (kart.finishTick >= 0 || kart.spinTicks > 0) continue;
+    const dx = sub(kart.x, s.x);
+    const dy = sub(kart.y, s.y);
+    const d = len(dx, dy);
+    if (d > 0 && d < bestD) {
+      bestD = d;
+      bx = dx;
+      by = dy;
+    }
+  }
+  if (bestD >= HOMING_RANGE) return;
+  const tx = div(bx, bestD);
+  const ty = div(by, bestD);
+  s.vx = add(s.vx, mul(sub(mul(tx, SHELL_SPEED), s.vx), HOMING_TURN));
+  s.vy = add(s.vy, mul(sub(mul(ty, SHELL_SPEED), s.vy), HOMING_TURN));
+  const vl = len(s.vx, s.vy);
+  if (vl > 0) {
+    // renormalize so homing never gains or sheds speed
+    s.vx = mul(div(s.vx, vl), SHELL_SPEED);
+    s.vy = mul(div(s.vy, vl), SHELL_SPEED);
+  }
+}
+
 /** Shells: move, bounce off fences, hit karts. Slot-major, karts by index. */
 export function stepShells(st: GameState): void {
   for (const s of st.shells) {
     if (s.ttl <= 0) continue;
     s.ttl -= 1;
     if (s.ttl === 0) continue;
+    if (s.homing === 1) steerShell(st, s);
     // two half-steps: per-check movement (0.35) stays under SHELL_RADIUS,
     // so a shell can never tunnel through a wall's centerline between checks
     for (let h = 0; h < 2 && s.ttl > 0; h++) {

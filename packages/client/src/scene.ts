@@ -608,12 +608,12 @@ export class GameScene {
     this.scene.add(this.sun.target);
 
     // projectile/hazard pools live outside the swappable world group
-    const shellMat = new THREE.MeshStandardMaterial({ color: '#3fd06b', roughness: 0.35, metalness: 0.2 });
     const shellRimMat = new THREE.MeshStandardMaterial({ color: '#f4f7ef', roughness: 0.6 });
     for (let i = 0; i < MAX_SHELLS; i++) {
+      // per-shell material: homing shells tint red while live
       const shell = new THREE.Mesh(
         new THREE.SphereGeometry(fxToFloat(SHELL_RADIUS), 14, 10),
-        shellMat,
+        new THREE.MeshStandardMaterial({ color: '#3fd06b', roughness: 0.35, metalness: 0.2 }),
       );
       shell.castShadow = true;
       const rim = new THREE.Mesh(
@@ -1277,6 +1277,9 @@ export class GameScene {
         const sz = -fxToFloat(s.y);
         mesh.position.set(sx, this.terrain.heightAt(sx, sz) + fxToFloat(SHELL_RADIUS), sz);
         mesh.rotation.y = this.t * 9; // menacing wobble-spin
+        (mesh.material as THREE.MeshStandardMaterial).color.set(
+          s.homing === 1 ? '#ff4757' : '#3fd06b',
+        );
       }
     });
     this.oilMeshes.forEach((mesh, i) => {

@@ -54,6 +54,7 @@ export interface KartState {
   spinTicks: number; // spin-out remaining; controls locked while > 0
   revTicks: number; // accel held during countdown (launch-boost timing)
   draftTicks: number; // consecutive ticks spent in another kart's wake
+  itemCooldown: number; // ticks until BTN_ITEM works again (multi-charge items)
 }
 
 /** Fired shell. Slot is live while ttl > 0; pool length is always MAX_SHELLS. */
@@ -65,6 +66,7 @@ export interface ShellState {
   vy: Fx;
   owner: number; // kart index that fired it
   bounces: number;
+  homing: number; // 1 = arcs toward the nearest kart in range
 }
 
 /** Dropped oil slick. Slot is live while ttl > 0; pool length is always MAX_OILS. */
@@ -92,9 +94,9 @@ export interface GameState {
   oils: OilState[]; // fixed length MAX_OILS
 }
 
-const KART_INTS = 15;
+const KART_INTS = 16;
 const GLOBAL_INTS = 4;
-const SHELL_INTS = 7;
+const SHELL_INTS = 8;
 const OIL_INTS = 4;
 const POOL_INTS = MAX_SHELLS * SHELL_INTS + MAX_OILS * OIL_INTS;
 
@@ -130,12 +132,13 @@ export function createGameState(cfg: RaceConfig): GameState {
       spinTicks: 0,
       revTicks: 0,
       draftTicks: 0,
+      itemCooldown: 0,
     });
   }
 
   const shells: ShellState[] = [];
   for (let i = 0; i < MAX_SHELLS; i++) {
-    shells.push({ ttl: 0, x: 0, y: 0, vx: 0, vy: 0, owner: 0, bounces: 0 });
+    shells.push({ ttl: 0, x: 0, y: 0, vx: 0, vy: 0, owner: 0, bounces: 0, homing: 0 });
   }
   const oils: OilState[] = [];
   for (let i = 0; i < MAX_OILS; i++) {
@@ -178,6 +181,7 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = k.spinTicks;
     out[i++] = k.revTicks;
     out[i++] = k.draftTicks;
+    out[i++] = k.itemCooldown;
   }
   for (let j = 0; j < st.items.length; j++) out[i++] = st.items[j]!;
   for (const s of st.shells) {
@@ -188,6 +192,7 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = s.vy;
     out[i++] = s.owner;
     out[i++] = s.bounces;
+    out[i++] = s.homing;
   }
   for (const o of st.oils) {
     out[i++] = o.ttl;
@@ -219,6 +224,7 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     k.spinTicks = arr[i++]!;
     k.revTicks = arr[i++]!;
     k.draftTicks = arr[i++]!;
+    k.itemCooldown = arr[i++]!;
   }
   for (let j = 0; j < st.items.length; j++) st.items[j] = arr[i++]!;
   for (const s of st.shells) {
@@ -229,6 +235,7 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     s.vy = arr[i++]!;
     s.owner = arr[i++]!;
     s.bounces = arr[i++]!;
+    s.homing = arr[i++]!;
   }
   for (const o of st.oils) {
     o.ttl = arr[i++]!;

@@ -102,7 +102,8 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
     prevX.push(kart.x);
     prevY.push(kart.y);
     const mask = st.phase === PHASE_RACING && kart.finishTick < 0 ? masks[i]! : INPUT_NEUTRAL;
-    if ((mask & BTN_ITEM) !== 0 && kart.spinTicks === 0) useHeldItem(st, i);
+    if (kart.itemCooldown > 0) kart.itemCooldown -= 1;
+    else if ((mask & BTN_ITEM) !== 0 && kart.spinTicks === 0) useHeldItem(st, i);
     stepKart(st, kart, mask);
   }
 
