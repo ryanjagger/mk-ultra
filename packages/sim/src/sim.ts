@@ -9,7 +9,7 @@
  */
 import { sub, wideDot, wideCross } from './fixed.js';
 import { BTN_ACCEL, BTN_ITEM, INPUT_NEUTRAL } from './input.js';
-import { stepKart, collideKarts, collideWalls } from './physics.js';
+import { stepKart, collideKarts, collideWalls, updateDraft } from './physics.js';
 import { stepCheckpoints, stepRacePhase } from './race.js';
 import { stepItems, stepShells, stepOils, useHeldItem } from './items.js';
 import { botMask } from './bots.js';
@@ -91,6 +91,9 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
       k.revTicks = 0;
     }
   }
+
+  // slipstream charges/slingshots on pre-move positions (symmetric pass)
+  if (st.phase === PHASE_RACING) updateDraft(st);
 
   const prevX: number[] = [];
   const prevY: number[] = [];

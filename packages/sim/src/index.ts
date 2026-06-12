@@ -26,5 +26,13 @@ export {
   OIL_ARM_TICKS,
   SPIN_OUT_TICKS,
 } from './items.js';
-export { MAX_SPEED, DRIFT_TIER1_TICKS, DRIFT_TIER2_TICKS, BOOST_CAP, onDirt } from './physics.js';
+export {
+  MAX_SPEED,
+  DRIFT_TIER1_TICKS,
+  DRIFT_TIER2_TICKS,
+  BOOST_CAP,
+  DRAFT_CHARGE_TICKS,
+  DRAFT_BURST_TICKS,
+  onDirt,
+} from './physics.js';
 export * from './rollback.js';

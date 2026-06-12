@@ -20,6 +20,7 @@ import {
   max,
   ratioFx,
   wideDot,
+  wideCross,
 } from './fixed.js';
 import { sinB, cosB } from './trig.js';
 import { BTN_ACCEL, BTN_BRAKE, BTN_DRIFT, INPUT_NEUTRAL, steerOf } from './input.js';
@@ -57,6 +58,16 @@ const SPIN_DRAG: Fx = fxConst(0.93); // extra forward decay per tick while spun 
 const WALL_BOUNCE: Fx = fxConst(1.25); // 1 + restitution
 const WALL_FRICTION: Fx = fxConst(0.96);
 const KART_IMPULSE: Fx = fxConst(0.8); // (1+e)/2 with e=0.6
+
+// slipstream: sit in a leader's wake to charge a tow; swing out of the wake
+// once charged and the stored air converts to a slingshot boost burst
+const DRAFT_RANGE: Fx = fxConst(7); // wake length behind the leader
+const DRAFT_HALF_WIDTH: Fx = fxConst(1.3);
+const DRAFT_MIN_SPEED: Fx = fxConst(0.3); // both karts must be at pace
+export const DRAFT_CHARGE_TICKS = 45; // time in wake before the tow kicks in
+const DRAFT_ACCEL: Fx = fxConst(0.004); // extra accel while towing
+const DRAFT_CAP_MULT: Fx = fxConst(1.18);
+export const DRAFT_BURST_TICKS = 40; // slingshot boost on exiting the wake
 
 // off-track dirt (skipped entirely while boosting — Mario Kart rule)
 const DIRT_DRAG: Fx = fxConst(0.96); // extra forward decay per tick
@@ -138,6 +149,49 @@ function slopeGradient(track: TrackRuntime, i: number): void {
   gradY = ratioFx(dh * aby, den);
 }
 
+/**
+ * Slipstream pass, run on pre-move positions so every kart sees the same
+ * world (fixed kart order, no pair asymmetry). In a wake: charge. Out of a
+ * wake with a full charge: slingshot.
+ */
+export function updateDraft(st: GameState): void {
+  const karts = st.karts;
+  const speeds: Fx[] = [];
+  for (const k of karts) speeds.push(len(k.vx, k.vy));
+  for (let i = 0; i < karts.length; i++) {
+    const k = karts[i]!;
+    let inWake = false;
+    if (k.finishTick < 0 && k.spinTicks === 0 && speeds[i]! >= DRAFT_MIN_SPEED) {
+      const fwdX = cosB(k.heading);
+      const fwdY = sinB(k.heading);
+      for (let j = 0; j < karts.length; j++) {
+        if (j === i) continue;
+        const lead = karts[j]!;
+        if (lead.finishTick >= 0 || speeds[j]! < DRAFT_MIN_SPEED) continue;
+        const dx = sub(lead.x, k.x);
+        const dy = sub(lead.y, k.y);
+        // leader ahead along our heading, inside the narrow wake corridor,
+        // and actually driving away from us (not oncoming)
+        const along = wideDot(dx, dy, fwdX, fwdY);
+        if (along <= 0 || along > DRAFT_RANGE * 65536) continue;
+        const lat = wideCross(fwdX, fwdY, dx, dy);
+        if ((lat < 0 ? -lat : lat) > DRAFT_HALF_WIDTH * 65536) continue;
+        if (wideDot(lead.vx, lead.vy, fwdX, fwdY) <= 0) continue;
+        inWake = true;
+        break;
+      }
+    }
+    if (inWake) {
+      if (k.draftTicks < 0x7fffffff) k.draftTicks += 1;
+    } else {
+      if (k.draftTicks >= DRAFT_CHARGE_TICKS && k.boostTicks < DRAFT_BURST_TICKS) {
+        k.boostTicks = DRAFT_BURST_TICKS; // the slingshot
+      }
+      k.draftTicks = 0;
+    }
+  }
+}
+
 export function stepKart(st: GameState, kart: KartState, mask: number): void {
   // spun out: controls are locked, the kart coasts with extra drag
   const spinning = kart.spinTicks > 0;
@@ -209,6 +263,11 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   } else if ((mask & BTN_ACCEL) !== 0) {
     accel = ACCEL;
   }
+  // charged slipstream: the leader's wake tows us along
+  const towing = kart.draftTicks >= DRAFT_CHARGE_TICKS;
+  if (towing && !boosting && (mask & BTN_ACCEL) !== 0) {
+    accel = add(accel, DRAFT_ACCEL);
+  }
   kart.vx = add(kart.vx, mul(fwdX, accel));
   kart.vy = add(kart.vy, mul(fwdY, accel));
   if (hills) {
@@ -235,6 +294,7 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
     const sFwd = add(mul(gradX, fwdX), mul(gradY, fwdY));
     cap = mul(MAX_SPEED, clamp(sub(FX_ONE, mul(SLOPE_CAP_GAIN, sFwd)), SLOPE_CAP_MIN, SLOPE_CAP_MAX));
   }
+  if (towing && !boosting) cap = max(cap, mul(MAX_SPEED, DRAFT_CAP_MULT));
   if (vf > cap) vf = max(cap, sub(vf, SPEED_BLEED)); // bleed down smoothly post-boost
   if (vf < -REVERSE_MAX) vf = -REVERSE_MAX | 0;
 
