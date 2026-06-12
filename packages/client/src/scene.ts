@@ -545,6 +545,7 @@ export class GameScene {
   private shards: { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number }[] = [];
   private shardGeo = new THREE.BoxGeometry(0.26, 0.26, 0.26);
 
+  private ghost: KartVisual | null = null;
   private orbit = { cx: 0, cz: 0, radius: 95, height: 42 };
   private idleAngle = 0;
   private camInit = false;
@@ -960,6 +961,7 @@ export class GameScene {
 
   /** Create kart visuals for a race. names[i] === null hides the name tag (local kart). */
   setupKarts(names: (string | null)[], looks?: KartLook[]): void {
+    this.removeGhost(); // stale time-trial ghosts never leak into a new race
     for (const k of this.karts) {
       this.scene.remove(k.group);
       disposeTree(k.group);
@@ -979,6 +981,46 @@ export class GameScene {
   /** Park the demo karts on the grid (home/lobby backdrop). */
   setupIdleKarts(): void {
     this.setupKarts([null, null, null, null]);
+  }
+
+  /** Translucent ghost kart for time trials (label floats above it). */
+  setupGhost(label: string): void {
+    this.removeGhost();
+    const v = buildKart({ primary: '#dfe7f5', accent: '#9fb4d8', flame: '#9fd0ff' }, label);
+    v.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = false;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        m.transparent = true;
+        m.opacity = 0.35;
+        m.depthWrite = false;
+      }
+    });
+    v.group.visible = false;
+    this.ghost = v;
+    this.scene.add(v.group);
+  }
+
+  removeGhost(): void {
+    if (!this.ghost) return;
+    this.scene.remove(this.ghost.group);
+    disposeTree(this.ghost.group);
+    this.ghost = null;
+  }
+
+  /** Pose the ghost for this frame; null hides it (pre-start, post-finish). */
+  updateGhost(k: KartRender | null): void {
+    const v = this.ghost;
+    if (!v) return;
+    v.group.visible = k !== null;
+    if (!k) return;
+    v.group.position.set(k.x, 0, k.z);
+    v.group.rotation.y = k.headingRad;
+    v.flame.visible = k.boosting;
+    v.sparkL.visible = false;
+    v.sparkR.visible = false;
   }
 
   updateRace(karts: KartRender[], state: GameState, localIdx: number, dt: number): void {

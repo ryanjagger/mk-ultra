@@ -38,20 +38,37 @@ export interface KartRender {
   onDirt: boolean;
 }
 
+/**
+ * The controller surface the HUD, renderer and audio consume — implemented
+ * by the networked RaceController and the offline TimeTrialController.
+ */
+export interface RaceLike {
+  readonly you: number;
+  readonly names: string[];
+  stalled: boolean;
+  readonly state: GameState;
+  update(): void;
+  renderKarts(dt: number): KartRender[];
+  placements(): number[];
+  raceTimeSec(): number;
+  finishTimeSec(kart: number): number | null;
+  debugText(pingMs: number): string;
+}
+
 const TWO_PI = Math.PI * 2;
 
 function headingToRad(brads: number): number {
   return ((brads & 0xffff) / 65536) * TWO_PI;
 }
 
-function lerpAngle(a: number, b: number, t: number): number {
+export function lerpAngle(a: number, b: number, t: number): number {
   let d = (b - a) % TWO_PI;
   if (d > Math.PI) d -= TWO_PI;
   if (d < -Math.PI) d += TWO_PI;
   return a + d * t;
 }
 
-function snapshotKarts(state: GameState, track: TrackRuntime): KartRender[] {
+export function snapshotKarts(state: GameState, track: TrackRuntime): KartRender[] {
   return state.karts.map((k) => ({
     x: fxToFloat(k.x),
     z: -fxToFloat(k.y), // sim y (north) -> three -z
@@ -66,7 +83,7 @@ function snapshotKarts(state: GameState, track: TrackRuntime): KartRender[] {
   }));
 }
 
-export class RaceController {
+export class RaceController implements RaceLike {
   readonly session: RollbackSession;
   readonly you: number;
   readonly names: string[];

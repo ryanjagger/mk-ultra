@@ -17,7 +17,8 @@ import { RANDOM_TRACK, type ServerMsg, type PlayerStyle } from '@mk/shared';
 import { Net } from './net.js';
 import { ClockSync } from './clock.js';
 import { Keyboard } from './keyboard.js';
-import { RaceController } from './game.js';
+import { RaceController, type RaceLike } from './game.js';
+import { TimeTrialController } from './timetrial.js';
 import { GameScene, KART_COLORS, defaultLook, type KartLook } from './scene.js';
 import { AudioEngine } from './audio.js';
 import { getProfile, saveProfile, myStyle } from './profile.js';
@@ -53,7 +54,8 @@ document.addEventListener('visibilitychange', () => audio.setHidden(document.hid
 
 type Screen = 'home' | 'lobby' | 'race' | 'results';
 let screen: Screen = 'home';
-let controller: RaceController | null = null;
+let controller: RaceLike | null = null;
+let ttParams: { trackId: string; laps: number } | null = null;
 let lastRoom: Extract<ServerMsg, { t: 'room' }> | null = null;
 let resultsShown = false;
 let stallSince: number | null = null;
@@ -369,6 +371,8 @@ function lookOf(style: PlayerStyle, seat: number): KartLook {
 }
 
 net.on('raceStart', (msg) => {
+  ttParams = null;
+  $('hud-best').classList.add('hidden');
   scene.setTrack(getTrack(msg.trackId)); // authoritative: server resolved 'random'
   controller = new RaceController(
     net,
@@ -400,14 +404,48 @@ net.on('raceStart', (msg) => {
   showScreen('race');
 });
 
-net.on('input', (msg) => controller?.onRemoteInput(msg.p, msg.f, msg.m));
+const netRace = (): RaceController | null =>
+  controller instanceof RaceController ? controller : null;
+
+// -------------------------------------------------------- time trial ----
+
+function startTimeTrial(trackChoice: string, laps: number): void {
+  const trackId =
+    trackChoice === RANDOM_TRACK
+      ? TRACKS[Math.floor(Math.random() * TRACKS.length)]!.def.id
+      : trackChoice;
+  ttParams = { trackId, laps };
+  scene.setTrack(getTrack(trackId));
+  const tt = new TimeTrialController(keyboard, { trackId, laps }, botMode);
+  controller = tt;
+  (window as { __mk?: unknown }).__mk = { controller };
+  audio.reset();
+  feats = null; // no XP for solo runs — progression stays a multiplayer reward
+  raceAward = null;
+  resultsShown = false;
+  stallSince = null;
+  $('hud-desync').classList.add('hidden');
+  $('hud-pos-of').textContent = '/1';
+  scene.setupKarts([null], [lookOf(myStyle(), 0)]);
+  if (tt.hasGhost) scene.setupGhost(`BEST ${fmtTime(tt.bestSec!)}`);
+  const best = $('hud-best');
+  best.textContent = tt.bestSec !== null ? `BEST ${fmtTime(tt.bestSec)}` : 'first run — set a record';
+  best.classList.remove('hidden');
+  showScreen('race');
+}
+
+$('btn-timetrial').addEventListener('click', () =>
+  startTimeTrial(createTrackSel.value, Number($<HTMLSelectElement>('create-laps').value)),
+);
+
+net.on('input', (msg) => netRace()?.onRemoteInput(msg.p, msg.f, msg.m));
 net.on('dropped', (msg) => {
-  controller?.onDropped(msg.p, msg.fromFrame);
+  netRace()?.onDropped(msg.p, msg.fromFrame);
   const name = controller?.names[msg.p] ?? `player ${msg.p}`;
   toast(`${name} disconnected`);
 });
 net.on('desync', (msg) => {
-  controller?.onDesync(msg.frame, msg.detail);
+  netRace()?.onDesync(msg.frame, msg.detail);
   const el = $('hud-desync');
   el.textContent = `⚠ DESYNC at frame ${msg.frame} — simulation diverged`;
   el.classList.remove('hidden');
@@ -452,6 +490,8 @@ function fmtTime(sec: number): string {
 
 function showResults(): void {
   if (!controller) return;
+  const tt = controller instanceof TimeTrialController ? controller : null;
+  $('results-title').textContent = tt ? '⏱ Time trial' : '🏁 Race results';
   const ol = $('results-list');
   ol.innerHTML = '';
   for (const idx of controller.placements()) {
@@ -468,7 +508,25 @@ function showResults(): void {
     li.append(dot, nm, time);
     ol.appendChild(li);
   }
-  if (feats && !raceAward) {
+
+  // time trial: record banner + previous best instead of the XP card
+  $('tt-result').classList.toggle('hidden', !tt);
+  $('results-xp').classList.toggle('hidden', !!tt);
+  $('btn-back-lobby').classList.toggle('hidden', !!tt);
+  $('btn-results-leave').classList.toggle('hidden', !!tt);
+  $('btn-tt-retry').classList.toggle('hidden', !tt);
+  $('btn-tt-home').classList.toggle('hidden', !tt);
+  if (tt?.result) {
+    $('tt-record').classList.toggle('hidden', !tt.result.isRecord);
+    $('tt-best').textContent =
+      tt.result.bestSec === null
+        ? 'First record on this track — beat your ghost next run.'
+        : tt.result.isRecord
+          ? `Previous best ${fmtTime(tt.result.bestSec)} — your ghost just got faster.`
+          : `Best ${fmtTime(tt.result.bestSec)} — the ghost lives another run.`;
+  }
+
+  if (feats && !raceAward && controller instanceof RaceController) {
     raceAward = awardRace(controller, feats);
     feats = null;
   }
@@ -476,6 +534,17 @@ function showResults(): void {
   renderDriver();
   showScreen('results');
 }
+
+$('btn-tt-retry').addEventListener('click', () => {
+  if (ttParams) startTimeTrial(ttParams.trackId, ttParams.laps);
+});
+$('btn-tt-home').addEventListener('click', () => {
+  controller = null;
+  ttParams = null;
+  $('hud-best').classList.add('hidden');
+  scene.setupIdleKarts();
+  showScreen('home');
+});
 
 /** XP breakdown + animated bar fill on the results screen. */
 function renderXpAward(award: RaceAward): void {
@@ -641,7 +710,7 @@ const heartbeatWorker = new Worker(
 heartbeatWorker.onmessage = () => {
   if (document.hidden && controller) {
     controller.update();
-    feats?.track(controller);
+    if (feats && controller instanceof RaceController) feats.track(controller);
     if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
       resultsShown = true;
       showResults();
@@ -657,8 +726,9 @@ function frame(now: number): void {
     controller.update();
     const karts = controller.renderKarts(dt);
     scene.updateRace(karts, controller.state, controller.you, dt);
+    if (controller instanceof TimeTrialController) scene.updateGhost(controller.ghostRender());
     audio.update(controller);
-    feats?.track(controller);
+    if (feats && controller instanceof RaceController) feats.track(controller);
     updateHud();
     if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
       resultsShown = true;

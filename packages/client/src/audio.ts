@@ -20,7 +20,7 @@ import {
   fxToFloat,
   type GameState,
 } from '@mk/sim';
-import type { RaceController } from './game.js';
+import type { RaceLike } from './game.js';
 
 const MASTER_GAIN = 0.32;
 /** one-shots from far-away karts/shells fade with distance (world units) */
@@ -220,7 +220,7 @@ export class AudioEngine {
   }
 
   /** Call once per render frame while a race is mounted. */
-  update(controller: RaceController): void {
+  update(controller: RaceLike): void {
     if (!this.ctx || !this.master) return;
     const st = controller.state;
     const you = controller.you;

@@ -131,6 +131,12 @@ input:focus { border-color: var(--accent); }
 .garage-item.locked { opacity: 0.45; cursor: default; }
 .garage-swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.4); }
 #results-xp { margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
+#tt-result { margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
+#tt-record {
+  font-weight: 900; font-style: italic; font-size: 20px; color: var(--accent);
+  animation: pulse 0.5s infinite alternate;
+}
+.tt-hint { font-size: 12px; align-self: center; }
 #xp-lines { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 #xp-lines li { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
 #xp-lines li b { color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -151,6 +157,7 @@ input:focus { border-color: var(--accent); }
 #hud-pos-of { font-size: 26px; color: var(--muted); }
 #hud-lap { right: 26px; top: 26px; font-size: 26px; font-weight: 900; font-style: italic; text-shadow: 0 3px 14px rgba(0,0,0,0.7); }
 #hud-time { right: 26px; top: 62px; font-size: 16px; color: var(--muted); text-align: right; }
+#hud-best { right: 26px; top: 86px; font-size: 13px; color: var(--accent); text-align: right; font-weight: 700; }
 #hud-speed { right: 26px; bottom: 26px; font-size: 44px; font-weight: 900; font-style: italic; color: #fff; text-shadow: 0 3px 14px rgba(0,0,0,0.7); }
 #hud-speed::after { content: ' km/h'; font-size: 15px; color: var(--muted); font-style: normal; }
 #hud-drift {

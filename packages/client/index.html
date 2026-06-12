@@ -44,6 +44,10 @@
             <button id="btn-create" class="btn">Create room</button>
           </div>
           <div class="row">
+            <button id="btn-timetrial" class="btn">⏱ Time Trial</button>
+            <span class="muted tt-hint">solo · race your best lap's ghost</span>
+          </div>
+          <div class="row">
             <!-- type=search + the ignore attrs keep password managers away from this -->
             <input id="join-code" type="search" name="room" maxlength="4" placeholder="CODE"
               class="code-input" autocomplete="off" autocorrect="off" autocapitalize="characters"
@@ -84,6 +88,7 @@
       <div id="hud-pos"><span id="hud-pos-num">1</span><span id="hud-pos-of">/4</span></div>
       <div id="hud-lap">LAP 1/3</div>
       <div id="hud-time">0:00.00</div>
+      <div id="hud-best" class="hidden"></div>
       <div id="hud-speed">0</div>
       <div id="hud-drift"><div id="hud-drift-fill"></div></div>
       <div id="hud-boost" class="hidden">BOOST!</div>
@@ -97,8 +102,12 @@
 
     <div id="screen-results" class="screen hidden">
       <div class="card results-card">
-        <h2>🏁 Race results</h2>
+        <h2 id="results-title">🏁 Race results</h2>
         <ol id="results-list" class="results-list"></ol>
+        <div id="tt-result" class="hidden">
+          <div id="tt-record" class="hidden">🏆 NEW RECORD!</div>
+          <p id="tt-best" class="muted"></p>
+        </div>
         <div id="results-xp">
           <ul id="xp-lines"></ul>
           <div id="xp-bar-row">
@@ -112,6 +121,8 @@
         <div class="row">
           <button id="btn-back-lobby" class="btn btn-primary">Back to lobby</button>
           <button id="btn-results-leave" class="btn btn-ghost">Leave room</button>
+          <button id="btn-tt-retry" class="btn btn-primary hidden">↻ Retry</button>
+          <button id="btn-tt-home" class="btn btn-ghost hidden">Home</button>
         </div>
       </div>
     </div>
