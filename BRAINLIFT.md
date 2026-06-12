@@ -34,6 +34,24 @@ padded one.
   end-to-end against the live server: a real run accepted with the exact
   sim time, a truncated forgery rejected, the board rendered in the
   results screen, and the #1 ghost downloaded and raced.
+- Afternoon polish batch, four client commits (`d09e3bf..5fbdcb7`): a UI
+  clarity pass (garage panel no longer shoves Quick Play off screen,
+  in-race controls key because players kept missing the item button,
+  drift meter shown only while charging), ACES tone mapping with
+  per-theme exposure and sky domes (gradient dome whose horizon is the
+  fog color, HDR sun/moon discs that bloom, day cumulus, deterministic
+  420-star nights) so every track gets a time of day, then kerbs/road
+  detail/trackside life (striped apex kerbs that follow hill heights,
+  asphalt grain, grid slots, grandstand of deterministic spectators,
+  billboards, floodlights, finish-line confetti), and a game-feel pass
+  (wheels roll at true speed and steer, chassis lean, landing squash,
+  camera that banks into drifts and kicks on landing; crowd and
+  shell-flyby doppler voices in the synth chain).
+- Sponsorship surfaces: one registry (`sponsors.ts`) feeds barrier
+  panels, billboards, the gantry title strip, a painted asphalt wordmark
+  and the grandstand fascia, with hash-stable slot assignment per track;
+  Gauntlet AI ships as title sponsor. Whole afternoon's sim footprint:
+  render-only `TrackTheme` lighting fields, same precedent as `weather`.
 
 ### AI interactions that accelerated learning
 
