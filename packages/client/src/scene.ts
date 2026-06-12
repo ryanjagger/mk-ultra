@@ -111,6 +111,89 @@ function cloudTexture(): THREE.Texture {
   return tex;
 }
 
+function kerbTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 16;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#d8483f';
+  g.fillRect(0, 0, 32, 16);
+  g.fillStyle = '#f2efe6';
+  g.fillRect(32, 0, 32, 16);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
+
+/** Subtle grain multiplied over road/dirt colors (linear: values ~0.92..1). */
+function grainTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(128, 128);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = 235 + Math.floor(Math.random() * 21);
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  // broad worn patches
+  for (let i = 0; i < 6; i++) {
+    const x = (i * 47) % 128;
+    const y = (i * 83) % 128;
+    const grad = g.createRadialGradient(x, y, 0, x, y, 34);
+    grad.addColorStop(0, 'rgba(0,0,0,0.06)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(0.1, 0.1);
+  return tex;
+}
+
+function billboardTexture(text: string, accent: string): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#161a26';
+  g.fillRect(0, 0, 320, 128);
+  g.strokeStyle = accent;
+  g.lineWidth = 6;
+  g.strokeRect(6, 6, 308, 116);
+  g.font = 'italic 900 44px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = accent;
+  g.fillText(text, 160, 66);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function gridSlotTexture(num: number): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 80;
+  const g = c.getContext('2d')!;
+  g.strokeStyle = 'rgba(255,255,255,0.95)';
+  g.lineWidth = 7;
+  g.strokeRect(6, 6, 116, 68);
+  g.font = '900 30px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(255,255,255,0.95)';
+  g.fillText(String(num), 64, 42);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function nameSprite(name: string, color: string): THREE.Sprite {
   const c = document.createElement('canvas');
   c.width = 256;
@@ -142,6 +225,7 @@ interface KartVisual {
   airborne: boolean; // was off the ground last frame (landing detection)
   balloons: THREE.Mesh[]; // battle-mode lives, shown while balloons remain
   prevBalloons: number;
+  wasFinished: boolean; // confetti fires on the finish edge
 }
 
 /** Render-only cosmetic colors for one kart (resolved from a PlayerStyle). */
@@ -260,6 +344,7 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
     airborne: false,
     balloons,
     prevBalloons: 3,
+    wasFinished: false,
   };
 }
 
@@ -548,6 +633,9 @@ const SpeedLinesShader = {
 
 const EMBER_COLOR = new THREE.Color('#ff9b2f').multiplyScalar(2.4); // HDR — blooms
 const DUST_COLOR = new THREE.Color('#8a7355').multiplyScalar(0.55); // dim: subtle under additive
+const CONFETTI = ['#ffd23f', '#ff4757', '#21e6c1', '#3fd06b', '#f2efe6', '#c879e0'].map((c) =>
+  new THREE.Color(c).multiplyScalar(1.5),
+);
 
 /** Item pickup: a shield badge — flat top, straight sides, point at the bottom. */
 function shieldGeometry(): THREE.ExtrudeGeometry {
@@ -935,8 +1023,15 @@ export class GameScene {
     ground.name = 'ground';
     g.add(ground);
 
-    const dirtMat = new THREE.MeshStandardMaterial({ color: th.dirt, roughness: 1 });
-    const asphaltMat = new THREE.MeshStandardMaterial({ color: th.asphalt, roughness: 0.95 });
+    // shared world-space grain: both materials read it through texture.repeat,
+    // and both geometry paths emit world-coordinate UVs
+    const grain = grainTexture();
+    const dirtMat = new THREE.MeshStandardMaterial({ color: th.dirt, roughness: 1, map: grain });
+    const asphaltMat = new THREE.MeshStandardMaterial({
+      color: th.asphalt,
+      roughness: 0.95,
+      map: grain,
+    });
 
     if (track.hasHills) {
       // hill track: corridor surfaces are triangle strips between two rims
@@ -948,9 +1043,13 @@ export class GameScene {
       const strip = (a: Rim, b: Rim, mat: THREE.MeshStandardMaterial): THREE.Mesh => {
         const n = a.length;
         const pos = new Float32Array(n * 6);
+        const uv = new Float32Array(n * 4);
         for (let i = 0; i < n; i++) {
           pos[i * 6] = a[i]![0]; pos[i * 6 + 1] = a[i]![1]; pos[i * 6 + 2] = a[i]![2];
           pos[i * 6 + 3] = b[i]![0]; pos[i * 6 + 4] = b[i]![1]; pos[i * 6 + 5] = b[i]![2];
+          // world-coordinate UVs, same convention as the flat ShapeGeometry path
+          uv[i * 4] = a[i]![0]; uv[i * 4 + 1] = a[i]![2];
+          uv[i * 4 + 2] = b[i]![0]; uv[i * 4 + 3] = b[i]![2];
         }
         const idx: number[] = [];
         for (let i = 0; i < n; i++) {
@@ -959,6 +1058,7 @@ export class GameScene {
         }
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
         geo.setIndex(idx);
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(geo, mat);
@@ -1134,6 +1234,12 @@ export class GameScene {
       g.add(mesh);
     }
 
+    const kerbs = this.buildKerbs(track);
+    if (kerbs) g.add(kerbs);
+    g.add(this.buildLaneDashes(track));
+    this.buildGridSlots(g, track);
+    this.buildTrackside(g, track);
+
     // item pickups: shield badges, point down
     const itemMat = new THREE.MeshStandardMaterial({
       color: '#ffd23f',
@@ -1168,6 +1274,258 @@ export class GameScene {
       mesh.receiveShadow = true;
     });
     return g;
+  }
+
+  /**
+   * Striped kerbs on the apex side of every sharp corner. One merged mesh;
+   * stripe UVs ride the cumulative edge length so they run continuously.
+   */
+  private buildKerbs(track: TrackRuntime): THREE.Mesh | null {
+    const n = track.centerline.length;
+    const W = 0.95;
+    const cl = (i: number) => track.centerline[((i % n) + n) % n]!;
+    const hOf = (i: number) => fxToFloat(track.heights[((i % n) + n) % n]!);
+    const cumOf = (loop: Vec2Fx[]) => {
+      const out = [0];
+      for (let i = 0; i < n; i++) {
+        const a = loop[i]!;
+        const b = loop[(i + 1) % n]!;
+        out.push(
+          out[i]! + Math.hypot(fxToFloat(b.x) - fxToFloat(a.x), fxToFloat(b.y) - fxToFloat(a.y)),
+        );
+      }
+      return out;
+    };
+    const cums = { i: cumOf(track.inner), o: cumOf(track.outer) };
+
+    // a corner earns a kerb when the centerline bends sharply at its vertex;
+    // the kerb hugs the apex-side asphalt edge over both adjacent segments
+    const segs = new Map<string, { j: number; side: 'i' | 'o' }>();
+    for (let i = 0; i < n; i++) {
+      const d1x = fxToFloat(cl(i).x) - fxToFloat(cl(i - 1).x);
+      const d1y = fxToFloat(cl(i).y) - fxToFloat(cl(i - 1).y);
+      const d2x = fxToFloat(cl(i + 1).x) - fxToFloat(cl(i).x);
+      const d2y = fxToFloat(cl(i + 1).y) - fxToFloat(cl(i).y);
+      const l1 = Math.hypot(d1x, d1y) || 1;
+      const l2 = Math.hypot(d2x, d2y) || 1;
+      const cross = (d1x * d2y - d1y * d2x) / (l1 * l2);
+      const dot = (d1x * d2x + d1y * d2y) / (l1 * l2);
+      if (Math.atan2(Math.abs(cross), dot) < 0.3) continue;
+      const side: 'i' | 'o' = cross > 0 ? 'i' : 'o'; // CCW: left turn apexes inner
+      segs.set(`${(i + n - 1) % n}:${side}`, { j: (i + n - 1) % n, side });
+      segs.set(`${i}:${side}`, { j: i, side });
+    }
+    if (segs.size === 0) return null;
+
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    for (const { j, side } of segs.values()) {
+      const loop = side === 'i' ? track.inner : track.outer;
+      const cum = cums[side];
+      for (const [k, vtx] of [j, (j + 1) % n].entries()) {
+        const e = loop[vtx]!;
+        const ex = fxToFloat(e.x);
+        const ez = -fxToFloat(e.y);
+        const cx = fxToFloat(cl(vtx).x);
+        const cz = -fxToFloat(cl(vtx).y);
+        const dl = Math.hypot(cx - ex, cz - ez) || 1;
+        const y = hOf(vtx) + 0.022;
+        const u = cum[j + k]! / 1.3;
+        pos.push(ex, y, ez, ex + ((cx - ex) / dl) * W, y, ez + ((cz - ez) / dl) * W);
+        uv.push(u, 0, u, 1);
+      }
+      const b = pos.length / 3 - 4;
+      idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(
+      geo,
+      new THREE.MeshStandardMaterial({
+        map: kerbTexture(),
+        roughness: 0.85,
+        side: THREE.DoubleSide,
+      }),
+    );
+    mesh.name = 'ground';
+    return mesh;
+  }
+
+  /** Faded centerline dashes — road-marking flavor, fully cosmetic. */
+  private buildLaneDashes(track: TrackRuntime): THREE.Mesh {
+    const n = track.centerline.length;
+    const pos: number[] = [];
+    const idx: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = track.centerline[i]!;
+      const b = track.centerline[(i + 1) % n]!;
+      const ax = fxToFloat(a.x);
+      const az = -fxToFloat(a.y);
+      const bx = fxToFloat(b.x);
+      const bz = -fxToFloat(b.y);
+      const ha = fxToFloat(track.heights[i]!);
+      const hb = fxToFloat(track.heights[(i + 1) % n]!);
+      const len = Math.hypot(bx - ax, bz - az);
+      const dx = (bx - ax) / len;
+      const dz = (bz - az) / len;
+      // perpendicular for dash width
+      const px = -dz * 0.09;
+      const pz = dx * 0.09;
+      for (let t = 3; t + 2 < len; t += 7) {
+        const f0 = t / len;
+        const f1 = (t + 2) / len;
+        const y0 = ha + (hb - ha) * f0 + 0.02;
+        const y1 = ha + (hb - ha) * f1 + 0.02;
+        const x0 = ax + dx * t;
+        const z0 = az + dz * t;
+        const x1 = ax + dx * (t + 2);
+        const z1 = az + dz * (t + 2);
+        const b0 = pos.length / 3;
+        pos.push(x0 - px, y0, z0 - pz, x0 + px, y0, z0 + pz, x1 - px, y1, z1 - pz, x1 + px, y1, z1 + pz);
+        idx.push(b0, b0 + 1, b0 + 2, b0 + 1, b0 + 3, b0 + 2);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setIndex(idx);
+    const mesh = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: '#e8e4cf',
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    mesh.name = 'ground';
+    return mesh;
+  }
+
+  /** Painted starting-grid slots, numbered per seat. */
+  private buildGridSlots(g: THREE.Group, track: TrackRuntime): void {
+    track.spawns.forEach((s, i) => {
+      const x = fxToFloat(s.x);
+      const z = -fxToFloat(s.y);
+      const geo = new THREE.PlaneGeometry(2.6, 1.5);
+      geo.rotateX(-Math.PI / 2);
+      const slot = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({
+          map: gridSlotTexture(i + 1),
+          transparent: true,
+          opacity: 0.8,
+          depthWrite: false,
+        }),
+      );
+      slot.position.set(x, this.terrain.heightAt(x, z) + 0.018, z);
+      slot.rotation.y = (s.heading / 65536) * Math.PI * 2;
+      g.add(slot);
+    });
+  }
+
+  /** Grandstand + crowd at the start, billboards on the longest straights,
+   *  floodlights on night tracks. All procedural, all deterministic. */
+  private buildTrackside(g: THREE.Group, track: TrackRuntime): void {
+    const th = track.def.theme;
+    const n = track.centerline.length;
+    const worldOf = (p: Vec2Fx) => new THREE.Vector3(fxToFloat(p.x), 0, -fxToFloat(p.y));
+
+    // grandstand: three rising steps of spectators behind the start gate
+    const sv = track.def.checkpointVerts[0]!;
+    const cS = worldOf(track.centerline[sv]!);
+    const fS = worldOf(track.fenceOuter[sv]!);
+    const out = fS.clone().sub(cS).setY(0).normalize();
+    const standPos = fS.clone().addScaledVector(out, 9);
+    standPos.y = this.terrain.groundHeightAt(standPos.x, standPos.z);
+    const stand = new THREE.Group();
+    const standMat = new THREE.MeshStandardMaterial({ color: '#3a4150', roughness: 0.9 });
+    const crowdMats = ['#e74a4a', '#ffd23f', '#3fd06b', '#5ea2ef', '#f2efe6', '#c879e0'].map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }),
+    );
+    const headGeo = new THREE.BoxGeometry(0.34, 0.42, 0.3);
+    for (let s = 0; s < 3; s++) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(14, 0.9 + s * 0.85, 1.5), standMat);
+      step.position.set(0, (0.9 + s * 0.85) / 2, -s * 1.5);
+      stand.add(step);
+      for (let i = 0; i < 18; i++) {
+        if ((i * 31 + s * 17) % 5 === 0) continue; // empty seats read as real
+        const fan = new THREE.Mesh(headGeo, crowdMats[(i * 7 + s * 11) % crowdMats.length]!);
+        fan.position.set(-6.4 + i * 0.75, 0.9 + s * 0.85 + 0.22, -s * 1.5 + ((i * 13) % 3) * 0.06);
+        stand.add(fan);
+      }
+    }
+    stand.position.copy(standPos);
+    stand.lookAt(cS.x, standPos.y, cS.z);
+    g.add(stand);
+
+    // billboards on the two longest straights
+    const ads = ['TURBO+', 'GHOST COLA', 'DRIFT KING', 'SHELL & CO', 'MK ULTRA', 'RAMP IT'];
+    const segLen = (j: number) => {
+      const a = track.centerline[j]!;
+      const b = track.centerline[(j + 1) % n]!;
+      return Math.hypot(fxToFloat(b.x) - fxToFloat(a.x), fxToFloat(b.y) - fxToFloat(a.y));
+    };
+    const order = Array.from({ length: n }, (_, j) => j).sort((a, b) => segLen(b) - segLen(a));
+    let hash = 0;
+    for (const ch of track.def.id) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+    order.slice(0, 2).forEach((j, bi) => {
+      const mid = worldOf(track.centerline[j]!).lerp(worldOf(track.centerline[(j + 1) % n]!), 0.5);
+      const fm = worldOf(track.fenceOuter[j]!).lerp(worldOf(track.fenceOuter[(j + 1) % n]!), 0.5);
+      const dir = fm.clone().sub(mid).setY(0).normalize();
+      const pos = fm.clone().addScaledVector(dir, 6.5);
+      pos.y = this.terrain.groundHeightAt(pos.x, pos.z);
+      const board = new THREE.Group();
+      const postMat = new THREE.MeshStandardMaterial({ color: '#2a2e3a', roughness: 0.8 });
+      for (const px of [-2.9, 2.9]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 4.4, 8), postMat);
+        post.position.set(px, 2.2, 0);
+        board.add(post);
+      }
+      const ad = Math.abs(hash + bi * 7 + j) % ads.length;
+      const panel = new THREE.Mesh(
+        new THREE.PlaneGeometry(7.4, 3),
+        new THREE.MeshBasicMaterial({ map: billboardTexture(ads[ad]!, th.wallA) }),
+      );
+      panel.position.set(0, 4.6, 0);
+      board.add(panel);
+      board.position.copy(pos);
+      board.lookAt(mid.x, pos.y, mid.z);
+      g.add(board);
+    });
+
+    // night tracks get floodlight gantries (the glow is bloom, not real light)
+    if (th.night) {
+      const poleMat = new THREE.MeshStandardMaterial({ color: '#222631', roughness: 0.7 });
+      const headMat = new THREE.MeshStandardMaterial({
+        color: '#eaf2ff',
+        emissive: '#dfe8ff',
+        emissiveIntensity: 2.4,
+      });
+      for (let k = 0; k < 4; k++) {
+        const i = Math.floor((k * n) / 4);
+        const cV = worldOf(track.centerline[i]!);
+        const fV = worldOf(track.fenceOuter[i]!);
+        const dir = fV.clone().sub(cV).setY(0).normalize();
+        const pos = fV.clone().addScaledVector(dir, 4.5);
+        pos.y = this.terrain.groundHeightAt(pos.x, pos.z);
+        const rig = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 9.4, 8), poleMat);
+        pole.position.y = 4.7;
+        rig.add(pole);
+        const head = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 0.7), headMat);
+        head.position.set(0, 9.4, 0.4);
+        head.rotation.x = 0.5; // tipped toward the track
+        rig.add(head);
+        rig.position.copy(pos);
+        rig.lookAt(cV.x, pos.y, cV.z);
+        g.add(rig);
+      }
+    }
   }
 
   /** Theme decor scattered just outside the fence, deterministically per vertex. */
@@ -1351,6 +1709,19 @@ export class GameScene {
         }
         v.prevBalloons = bal;
       }
+      // crossing the line pops confetti (race mode; battle "finish" = elimination)
+      if (k.finished && !v.wasFinished && state.cfg.mode !== 'battle') {
+        for (let ci = 0; ci < 70; ci++) {
+          const a = (ci / 70) * Math.PI * 2;
+          const sp = 1 + Math.random() * 2.2;
+          this.particles.emit(
+            k.x + (Math.random() - 0.5) * 1.6, gy + 1.4, k.z + (Math.random() - 0.5) * 1.6,
+            Math.cos(a) * sp, 5 + Math.random() * 4.5, Math.sin(a) * sp,
+            CONFETTI[ci % CONFETTI.length]!, 0.9 + Math.random() * 0.5, gy,
+          );
+        }
+      }
+      v.wasFinished = k.finished;
       // touchdown poof
       const airNow = k.jump > 0.02;
       if (v.airborne && !airNow) {
