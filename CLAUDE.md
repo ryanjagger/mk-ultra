@@ -20,11 +20,16 @@ cd packages/sim && pnpm exec vitest run test/fixed.test.ts -t 'divides'
 pnpm --filter @mk/server dev     # terminal 1
 pnpm --filter @mk/client dev     # terminal 2
 
+# headless netcode fleet: N real clients with simulated links race through
+# the actual relay (local or prod) and report stalls/rollbacks/lag percentiles;
+# exits non-zero on desync, divergence or timeout
+pnpm --filter @mk/server fleet -- --lags 20,90,90,250 --jitters 0,30,30,60 --laps 1
+
 # deploy (Railway service "mk-ultra", Dockerfile build; repo is railway-linked)
 railway up --service mk-ultra --detach -m "<summary>"
 ```
 
-Browser E2E: append `?bot` to the URL for a self-driving client; create/join rooms in two tabs and the race runs itself. The `window.__mk = { controller }` debug hook is set during races. F3 toggles the netcode overlay.
+Browser E2E: append `?bot` to the URL for a self-driving client; create/join rooms in two tabs and the race runs itself. Add `&lag=90&jitter=30` to simulate that much RTT on the tab's link (per-tab, so rooms with mixed pings reproduce on localhost). The `window.__mk = { controller }` debug hook is set during races. F3 toggles the netcode overlay.
 
 ## The one constraint that dominates everything
 

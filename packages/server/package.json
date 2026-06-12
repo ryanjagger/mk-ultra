@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.cjs --external:bufferutil --external:utf-8-validate",
-    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "fleet": "tsx src/fleet.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -19,6 +20,7 @@
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.0",
     "esbuild": "^0.27.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.8.3",
     "vitest": "^3.1.4"
   }
