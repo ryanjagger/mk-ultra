@@ -18,10 +18,15 @@ const KEYMAP: Record<string, number> = {
   ControlRight: BTN_ITEM,
 };
 
+/** Held look-behind keys — view-only, never part of the input mask. */
+const LOOK_BACK = new Set(['KeyR', 'KeyC']);
+
 export class Keyboard {
   private mask = 0;
   /** swallow game keys (avoid page scroll) only while racing */
   captureGameKeys = false;
+  /** rearview camera while held (render-only, never on the wire) */
+  lookBack = false;
   onDebugToggle: (() => void) | null = null;
   onMuteToggle: (() => void) | null = null;
 
@@ -39,6 +44,14 @@ export class Keyboard {
         }
         return;
       }
+      if (LOOK_BACK.has(e.code)) {
+        const target = e.target as HTMLElement | null;
+        if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) {
+          if (this.captureGameKeys) e.preventDefault();
+          this.lookBack = true;
+        }
+        return;
+      }
       const bit = KEYMAP[e.code];
       if (bit === undefined) return;
       if (this.captureGameKeys) {
@@ -50,11 +63,13 @@ export class Keyboard {
       }
     });
     window.addEventListener('keyup', (e) => {
+      if (LOOK_BACK.has(e.code)) this.lookBack = false;
       const bit = KEYMAP[e.code];
       if (bit !== undefined) this.mask &= ~bit;
     });
     window.addEventListener('blur', () => {
       this.mask = 0;
+      this.lookBack = false;
     });
   }
 

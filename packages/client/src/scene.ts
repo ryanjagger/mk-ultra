@@ -564,6 +564,9 @@ export class GameScene {
   private orbit = { cx: 0, cz: 0, radius: 95, height: 42 };
   private idleAngle = 0;
   private camInit = false;
+  /** look-behind camera while true (set per frame from held key) */
+  rearview = false;
+  private prevRearview = false;
   private t = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -1212,15 +1215,21 @@ export class GameScene {
     this.updatePads();
     this.updateProjectiles(state);
 
-    // chase camera on the local kart
+    // chase camera on the local kart; rearview mirrors it to the nose,
+    // looking back (snap on toggle — lerping would sweep through the kart)
     const me = karts[localIdx];
     if (me) {
+      if (this.rearview !== this.prevRearview) {
+        this.prevRearview = this.rearview;
+        this.camInit = false;
+      }
+      const facing = this.rearview ? -1 : 1;
       const dir = new THREE.Vector3(Math.cos(me.headingRad), 0, -Math.sin(me.headingRad));
-      const desired = new THREE.Vector3(me.x, 0, me.z).addScaledVector(dir, -7.6);
+      const desired = new THREE.Vector3(me.x, 0, me.z).addScaledVector(dir, -7.6 * facing);
       // ride the terrain: sample under the camera so crests drop away ahead
       desired.y = this.terrain.heightAt(desired.x, desired.z) + 4.1;
       const meY = this.terrain.heightAt(me.x, me.z);
-      const look = new THREE.Vector3(me.x, meY + 1.1, me.z).addScaledVector(dir, 4.0);
+      const look = new THREE.Vector3(me.x, meY + 1.1, me.z).addScaledVector(dir, 4.0 * facing);
       if (!this.camInit) {
         this.camera.position.copy(desired);
         this.camInit = true;
