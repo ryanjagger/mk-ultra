@@ -12,6 +12,7 @@ import {
   isItemActive,
   type GameState,
   type KartState,
+  type TrackRuntime,
 } from '@mk/sim';
 import { RANDOM_TRACK, type ServerMsg, type PlayerStyle } from '@mk/shared';
 import { Net } from './net.js';
@@ -391,6 +392,8 @@ net.on('raceStart', (msg) => {
   // debug hook for E2E tests and console poking (read-only by convention)
   (window as { __mk?: unknown }).__mk = { controller };
   audio.reset();
+  resetHudState();
+  kartDotColors = msg.styles.map((s, i) => liveryColor(s.livery, i));
   feats = new FeatTracker();
   raceAward = null;
   resultsShown = false;
@@ -420,6 +423,8 @@ function startTimeTrial(trackChoice: string, laps: number): void {
   controller = tt;
   (window as { __mk?: unknown }).__mk = { controller };
   audio.reset();
+  resetHudState();
+  kartDotColors = [liveryColor(myStyle().livery, 0)];
   feats = null; // no XP for solo runs — progression stays a multiplayer reward
   raceAward = null;
   resultsShown = false;
@@ -657,6 +662,107 @@ function updateItemBadge(st: GameState, me: KartState): void {
   itemEl.classList.toggle('bump', onBox);
 }
 
+// --- minimap: track outline cached per track, kart dots redrawn per frame
+const minimap = $<HTMLCanvasElement>('hud-minimap');
+const mmCtx = minimap.getContext('2d')!;
+let mmTrackId: string | null = null;
+let mmPath: Path2D | null = null;
+let mmStart: [number, number, number, number] | null = null;
+let mmProject: (x: number, y: number) => [number, number] = () => [0, 0];
+let kartDotColors: string[] = [];
+
+function buildMinimap(track: TrackRuntime): void {
+  mmTrackId = track.def.id;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of track.fenceOuter) {
+    const x = fxToFloat(p.x);
+    const y = fxToFloat(p.y);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const pad = 9;
+  const scale = Math.min(
+    (minimap.width - pad * 2) / (maxX - minX),
+    (minimap.height - pad * 2) / (maxY - minY),
+  );
+  const ox = (minimap.width - (maxX - minX) * scale) / 2;
+  const oy = (minimap.height - (maxY - minY) * scale) / 2;
+  mmProject = (x, y) => [ox + (x - minX) * scale, oy + (maxY - y) * scale]; // sim y is north
+  const path = new Path2D();
+  for (const loop of [track.outer, track.inner]) {
+    loop.forEach((p, i) => {
+      const [px, py] = mmProject(fxToFloat(p.x), fxToFloat(p.y));
+      if (i === 0) path.moveTo(px, py);
+      else path.lineTo(px, py);
+    });
+    path.closePath();
+  }
+  mmPath = path;
+  const g0 = track.gates[0]!;
+  mmStart = [
+    ...mmProject(fxToFloat(g0.x0), fxToFloat(g0.y0)),
+    ...mmProject(fxToFloat(g0.x1), fxToFloat(g0.y1)),
+  ] as [number, number, number, number];
+}
+
+function drawMinimap(st: GameState): void {
+  if (!controller) return;
+  if (mmTrackId !== st.track.def.id) buildMinimap(st.track);
+  mmCtx.clearRect(0, 0, minimap.width, minimap.height);
+  mmCtx.fillStyle = 'rgba(8, 11, 20, 0.55)';
+  mmCtx.fill(mmPath!, 'evenodd');
+  mmCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+  mmCtx.lineWidth = 1.5;
+  mmCtx.stroke(mmPath!);
+  if (mmStart) {
+    mmCtx.strokeStyle = 'rgba(255, 210, 63, 0.9)';
+    mmCtx.beginPath();
+    mmCtx.moveTo(mmStart[0], mmStart[1]);
+    mmCtx.lineTo(mmStart[2], mmStart[3]);
+    mmCtx.stroke();
+  }
+  if (controller instanceof TimeTrialController) {
+    const g = controller.ghostRender();
+    if (g) {
+      const [px, py] = mmProject(g.x, -g.z); // three z back to sim y
+      mmCtx.beginPath();
+      mmCtx.arc(px, py, 3.5, 0, Math.PI * 2);
+      mmCtx.fillStyle = 'rgba(220, 230, 245, 0.6)';
+      mmCtx.fill();
+    }
+  }
+  st.karts.forEach((k, i) => {
+    const [px, py] = mmProject(fxToFloat(k.x), fxToFloat(k.y));
+    const isYou = i === controller!.you;
+    mmCtx.beginPath();
+    mmCtx.arc(px, py, isYou ? 4.5 : 3.5, 0, Math.PI * 2);
+    mmCtx.fillStyle = kartDotColors[i] ?? KART_COLORS[i % KART_COLORS.length]!;
+    mmCtx.fill();
+    if (isYou) {
+      mmCtx.strokeStyle = '#fff';
+      mmCtx.lineWidth = 1.5;
+      mmCtx.stroke();
+    }
+  });
+}
+
+// --- final-lap flash + wrong-way warning
+let prevLapLocal = 1;
+let finalLapUntil = 0;
+let wrongSince: number | null = null;
+
+function resetHudState(): void {
+  prevLapLocal = 1;
+  finalLapUntil = 0;
+  wrongSince = null;
+  lastHeld = ITEM_NONE;
+}
+
 function updateHud(): void {
   if (!controller) return;
   const st = controller.state;
@@ -696,6 +802,30 @@ function updateHud(): void {
     stallSince = null;
   }
   $('hud-wait').classList.toggle('hidden', !(stallSince && performance.now() - stallSince > 400));
+
+  // FINAL LAP flash on entering the last lap (multi-lap races only)
+  if (st.cfg.lapCount > 1 && me.lap === st.cfg.lapCount && prevLapLocal === st.cfg.lapCount - 1) {
+    finalLapUntil = performance.now() + 2300;
+  }
+  prevLapLocal = me.lap;
+  $('hud-finallap').classList.toggle('hidden', performance.now() >= finalLapUntil);
+
+  // wrong way: moving away from the next gate for a sustained beat
+  const racing = st.phase !== PHASE_COUNTDOWN && st.phase !== PHASE_FINISHED && me.finishTick < 0;
+  const gate = st.track.gates[me.nextCp]!;
+  const vx = fxToFloat(me.vx);
+  const vy = fxToFloat(me.vy);
+  const away =
+    racing &&
+    Math.hypot(vx, vy) > 0.12 &&
+    vx * (fxToFloat(gate.cx) - fxToFloat(me.x)) + vy * (fxToFloat(gate.cy) - fxToFloat(me.y)) < 0;
+  wrongSince = away ? (wrongSince ?? performance.now()) : null;
+  $('hud-wrongway').classList.toggle(
+    'hidden',
+    !(wrongSince && performance.now() - wrongSince > 900),
+  );
+
+  drawMinimap(st);
 
   if (debugVisible) $('hud-debug').textContent = controller.debugText(clock.rttMs);
 }

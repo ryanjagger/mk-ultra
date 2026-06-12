@@ -166,6 +166,17 @@ input:focus { border-color: var(--accent); }
 }
 #hud-drift-fill { height: 100%; width: 0%; background: #6fd3ff; transition: background 0.1s; }
 #hud-boost { left: 26px; bottom: 56px; font-weight: 900; color: var(--accent); font-style: italic; font-size: 22px; animation: pulse 0.5s infinite alternate; }
+#hud-minimap { position: absolute; right: 22px; bottom: 92px; opacity: 0.92; }
+#hud-finallap {
+  left: 50%; top: 34%; transform: translateX(-50%);
+  font-size: 44px; font-weight: 900; font-style: italic; color: var(--accent);
+  text-shadow: 0 4px 18px rgba(0,0,0,0.6); animation: pulse 0.4s infinite alternate;
+}
+#hud-wrongway {
+  left: 50%; top: 44%; transform: translateX(-50%);
+  font-size: 30px; font-weight: 900; color: #ff4757;
+  text-shadow: 0 4px 18px rgba(0,0,0,0.6); animation: pulse 0.35s infinite alternate;
+}
 #hud-item {
   left: 50%; top: 22px; transform: translateX(-50%);
   width: 74px; height: 74px; border-radius: 16px;
