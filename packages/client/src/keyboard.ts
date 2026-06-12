@@ -21,6 +21,9 @@ const KEYMAP: Record<string, number> = {
 /** Held look-behind keys — view-only, never part of the input mask. */
 const LOOK_BACK = new Set(['KeyR', 'KeyC']);
 
+/** Stick travel before steering registers. */
+const PAD_DEADZONE = 0.35;
+
 export class Keyboard {
   private mask = 0;
   /** swallow game keys (avoid page scroll) only while racing */
@@ -74,6 +77,40 @@ export class Keyboard {
   }
 
   sample(): number {
-    return this.mask;
+    return this.mask | this.padMask();
+  }
+
+  /** Combined keyboard + gamepad look-behind (refreshes the pad poll). */
+  lookingBack(): boolean {
+    this.padMask();
+    return this.lookBack || this.padLook;
+  }
+
+  private padLook = false;
+
+  /**
+   * OR-merge the first connected gamepad into the mask. The Gamepad API is
+   * poll-based, so this runs on every sample. Standard mapping: A/RT accel,
+   * B/LT brake, LB/RB drift, X/Y item, stick or dpad steers, right stick
+   * pulled back = rearview.
+   */
+  private padMask(): number {
+    this.padLook = false;
+    if (typeof navigator === 'undefined' || !navigator.getGamepads) return 0;
+    for (const pad of navigator.getGamepads()) {
+      if (!pad || !pad.connected) continue;
+      const b = (i: number) => pad.buttons[i]?.pressed ?? false;
+      const stickX = pad.axes[0] ?? 0;
+      let mask = 0;
+      if (b(0) || b(7) || b(12)) mask |= BTN_ACCEL;
+      if (b(1) || b(6) || b(13)) mask |= BTN_BRAKE;
+      if (b(4) || b(5)) mask |= BTN_DRIFT;
+      if (b(2) || b(3)) mask |= BTN_ITEM;
+      if (b(14) || stickX < -PAD_DEADZONE) mask |= BTN_LEFT;
+      if (b(15) || stickX > PAD_DEADZONE) mask |= BTN_RIGHT;
+      if ((pad.axes[3] ?? 0) > 0.6) this.padLook = true;
+      return mask; // first connected pad wins
+    }
+    return 0;
   }
 }

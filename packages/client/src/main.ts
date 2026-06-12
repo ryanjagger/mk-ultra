@@ -917,7 +917,7 @@ function frame(now: number): void {
   if (controller && screen !== 'home' && screen !== 'lobby') {
     controller.update();
     const karts = controller.renderKarts(dt);
-    scene.rearview = keyboard.lookBack;
+    scene.rearview = keyboard.lookingBack();
     scene.updateRace(karts, controller.state, controller.you, dt);
     if (controller instanceof TimeTrialController) scene.updateGhost(controller.ghostRender());
     audio.update(controller);
