@@ -33,6 +33,16 @@ padded one.
   the drivetrain droning past the finish line.
 - Verified the way items v2 was: bot races on all four tracks locally, then
   a production smoke race after each deploy.
+- Hills (uncommitted, evening session): per-vertex track elevation with real
+  slope physics — gravity along the height gradient, slope-shifted speed
+  caps (climbs slow, descents fast, boost overrides) — plus a fifth track,
+  Summit Pass, built to show it off. Renderer grew a float-side `Terrain`
+  sampler, elevation-following ribbon meshes with cosine falloff aprons,
+  slope-pitched walls/karts/pads, and a terrain-aware chase camera. Key
+  design call: height is a *pure function of 2D position*, so no new
+  snapshot fields, no protocol change, and the four flat tracks keep their
+  v1 hashes (verified bit-identical before/after). 110 sim tests green;
+  bot completes Summit Pass in 1:23 solo.
 
 ### AI interactions that accelerated learning
 
@@ -54,6 +64,16 @@ padded one.
 - **Flash lives in data, not code.** Weather became one optional render-only
   field on `TrackTheme` — the determinism lint, sim gates and protocol are
   untouched, and the next track gets atmosphere by adding one word.
+- **Golden hashes before touching shared code paths.** Before refactoring
+  `onDirt` into the shared surface probe, a throwaway test logged final
+  state hashes for a bot race + chaos run per track; re-running after the
+  refactor proved the existing tracks bit-identical. Cheap (20 lines,
+  deleted afterwards) and it converts "should be equivalent" into "is".
+- **Derive, don't store.** Asking "can hills avoid touching the snapshot?"
+  up front led to the whole design: height as a function of (x, y) means
+  rollback, the wire protocol and `state.ts` never learn hills exist. The
+  feature that looked protocol-shaped turned out to be two functions in
+  `physics.ts` plus data.
 
 ### Challenges → solutions
 
@@ -78,6 +98,17 @@ padded one.
   cross-checks. Lesson: solo-room state is freely pokeable for render-layer
   verification; multiplayer determinism rules don't apply to an audience of
   one.
+- **Accel-based slope physics has a stall cliff; cap-based doesn't.** First
+  hills model applied gravity only as an acceleration term. Because rolling
+  resistance is tiny (0.8%/tick), the full-throttle equilibrium speed sits
+  far above `MAX_SPEED` — so gentle climbs changed nothing at all, and the
+  gravity needed to make them matter put steeper climbs within a hair of
+  stalling. Root cause: with near-zero linear drag, equilibrium speed is
+  hypersensitive to net accel. Fix: keep a mild gravity accel for coast and
+  slide feel, but express the main effect as a slope-scaled *speed cap*
+  (`SPEED_BLEED` already eases karts toward a moved cap smoothly) with a 60%
+  floor so no slope can stall a kart — which is also what keeps the
+  lookahead-free greedy bot finishing the new track.
 
 ## 2026-06-10
 
