@@ -64,16 +64,32 @@ const DIRT_CAP: Fx = mul(MAX_SPEED, fxConst(0.55));
 const DIRT_BLEED: Fx = fxConst(0.012); // over-cap decay per tick on dirt
 const LAT_GRIP_DIRT: Fx = fxConst(0.9);
 
+// hills: height is lerped along the closest centerline segment, constant
+// across the track width. Gravity accelerates karts along -∇h; the forward
+// slope also moves the speed cap so climbs are slow and descents are fast.
+const GRAVITY: Fx = fxConst(0.02); // accel per unit of slope, per tick
+const SLOPE_CAP_GAIN: Fx = fxConst(1.5); // cap multiplier change per unit forward slope
+const SLOPE_CAP_MIN: Fx = fxConst(0.6); // steepest climb still allows 60% of MAX_SPEED
+const SLOPE_CAP_MAX: Fx = fxConst(1.25); // downhill cap ceiling (below boost's 1.42)
+
+// closest-centerline-segment probe results — transient scratch, fully written
+// by probeSurface before every read; never part of snapshotted state
+let probeDist: Fx = 0;
+let probeHalfW: Fx = 0;
+let probeSeg = 0;
+
 /**
- * Is (x, y) beyond the asphalt? Distance to the centerline polyline compared
- * against the segment's lerped half-width. Strict `<` on the best distance
- * makes vertex ties resolve to the lowest segment index — deterministic.
+ * Closest point on the centerline polyline: distance, lerped half-width and
+ * segment index, written to the probe scratch. Strict `<` on the best
+ * distance makes vertex ties resolve to the lowest segment index —
+ * deterministic.
  */
-export function onDirt(track: TrackRuntime, x: Fx, y: Fx): boolean {
+function probeSurface(track: TrackRuntime, x: Fx, y: Fx): void {
   const pts = track.centerline;
   const n = pts.length;
   let bestD: Fx = 0x7fffffff;
   let bestW: Fx = 0;
+  let bestI = 0;
   for (let i = 0; i < n; i++) {
     const a = pts[i]!;
     const b = pts[(i + 1) % n]!;
@@ -86,9 +102,40 @@ export function onDirt(track: TrackRuntime, x: Fx, y: Fx): boolean {
     if (d < bestD) {
       bestD = d;
       bestW = lerp(track.halfWidths[i]!, track.halfWidths[(i + 1) % n]!, t);
+      bestI = i;
     }
   }
-  return bestD > bestW;
+  probeDist = bestD;
+  probeHalfW = bestW;
+  probeSeg = bestI;
+}
+
+/** Is (x, y) beyond the asphalt? */
+export function onDirt(track: TrackRuntime, x: Fx, y: Fx): boolean {
+  probeSurface(track, x, y);
+  return probeDist > probeHalfW;
+}
+
+// height-field gradient of a probed segment (constant along the segment)
+let gradX: Fx = 0;
+let gradY: Fx = 0;
+
+function slopeGradient(track: TrackRuntime, i: number): void {
+  const pts = track.centerline;
+  const j = (i + 1) % pts.length;
+  const dh = sub(track.heights[j]!, track.heights[i]!);
+  gradX = 0;
+  gradY = 0;
+  if (dh === 0) return;
+  const a = pts[i]!;
+  const b = pts[j]!;
+  const abx = sub(b.x, a.x);
+  const aby = sub(b.y, a.y);
+  const den = wideDot(abx, aby, abx, aby);
+  if (den === 0) return;
+  // ∇(lerp of h along the segment) = dh * ab / |ab|², exact via wide math
+  gradX = ratioFx(dh * abx, den);
+  gradY = ratioFx(dh * aby, den);
 }
 
 export function stepKart(st: GameState, kart: KartState, mask: number): void {
@@ -145,9 +192,15 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
 
   // --- longitudinal accel ---
   const boosting = kart.boostTicks > 0;
-  // surface test on the pre-move position, only on tracks that have dirt
-  // (classic tracks skip all of this, keeping their v1 hashes intact)
-  const offRoad = !boosting && st.track.hasDirt && onDirt(st.track, kart.x, kart.y);
+  // surface probe on the pre-move position, only on tracks that need it
+  // (classic flat tracks skip all of this, keeping their v1 hashes intact)
+  const hills = st.track.hasHills;
+  let offRoad = false;
+  if ((!boosting && st.track.hasDirt) || hills) {
+    probeSurface(st.track, kart.x, kart.y);
+    offRoad = !boosting && st.track.hasDirt && probeDist > probeHalfW;
+    if (hills) slopeGradient(st.track, probeSeg);
+  }
   let accel: Fx = 0;
   if (boosting) {
     accel = mul(ACCEL, BOOST_ACCEL_MULT);
@@ -158,6 +211,11 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   }
   kart.vx = add(kart.vx, mul(fwdX, accel));
   kart.vy = add(kart.vy, mul(fwdY, accel));
+  if (hills) {
+    // gravity pulls along -∇h; the grip stage bleeds the lateral part
+    kart.vx = sub(kart.vx, mul(GRAVITY, gradX));
+    kart.vy = sub(kart.vy, mul(GRAVITY, gradY));
+  }
 
   // --- grip: split velocity into forward + lateral, decay each ---
   let vf = add(mul(kart.vx, fwdX), mul(kart.vy, fwdY));
@@ -171,7 +229,12 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
     vf = mul(vf, DIRT_DRAG);
     if (vf > DIRT_CAP) vf = max(DIRT_CAP, sub(vf, DIRT_BLEED));
   }
-  const cap = boosting ? mul(MAX_SPEED, BOOST_SPEED_MULT) : MAX_SPEED;
+  let cap = boosting ? mul(MAX_SPEED, BOOST_SPEED_MULT) : MAX_SPEED;
+  if (hills && !boosting) {
+    // climbing lowers the speed cap, descending raises it (downhill rush)
+    const sFwd = add(mul(gradX, fwdX), mul(gradY, fwdY));
+    cap = mul(MAX_SPEED, clamp(sub(FX_ONE, mul(SLOPE_CAP_GAIN, sFwd)), SLOPE_CAP_MIN, SLOPE_CAP_MAX));
+  }
   if (vf > cap) vf = max(cap, sub(vf, SPEED_BLEED)); // bleed down smoothly post-boost
   if (vf < -REVERSE_MAX) vf = -REVERSE_MAX | 0;
 

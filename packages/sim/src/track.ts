@@ -52,6 +52,12 @@ export interface TrackDefVertex {
   w?: number;
   /** dirt margin beyond the asphalt, in units (default 0 = wall at asphalt) */
   dirt?: number;
+  /**
+   * elevation in units (default 0 = flat). Height is lerped along the
+   * centerline and constant across the track width; slopes pull karts
+   * downhill (physics.ts) and the renderer lifts the world to match.
+   */
+  h?: number;
 }
 
 export interface TrackDefPad {
@@ -135,8 +141,12 @@ export interface TrackRuntime {
   fenceOuter: Vec2Fx[];
   /** per-vertex asphalt half-width (fx) */
   halfWidths: Fx[];
+  /** per-vertex elevation (fx), lerped along the centerline */
+  heights: Fx[];
   /** does any vertex have a dirt margin? (skip surface checks when not) */
   hasDirt: boolean;
+  /** does any vertex have elevation? (skip slope physics when not) */
+  hasHills: boolean;
   walls: WallSeg[];
   gates: Gate[];
   itemSpawns: ItemSpawn[];
@@ -163,6 +173,8 @@ export function buildTrack(def: TrackDef): TrackRuntime {
     fxConst((v.w ?? DEFAULT_HALF_WIDTH) + (v.dirt ?? 0)),
   );
   const hasDirt = def.verts.some((v) => (v.dirt ?? 0) > 0);
+  const heights: Fx[] = def.verts.map((v) => fxConst(v.h ?? 0));
+  const hasHills = def.verts.some((v) => (v.h ?? 0) !== 0);
 
   const inner: Vec2Fx[] = [];
   const outer: Vec2Fx[] = [];
@@ -261,7 +273,9 @@ export function buildTrack(def: TrackDef): TrackRuntime {
     fenceInner,
     fenceOuter,
     halfWidths,
+    heights,
     hasDirt,
+    hasHills,
     walls,
     gates,
     itemSpawns,

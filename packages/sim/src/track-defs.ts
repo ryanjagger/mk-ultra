@@ -209,9 +209,62 @@ const GLACIER_GP: TrackDef = {
   },
 };
 
+/**
+ * Summit Pass — the hill track. A long climb up the eastern sweepers to a
+ * narrow crest, then a fast plunging descent through walled esses back to
+ * the valley floor. Heights stay gentle (|slope| <= ~0.12) so the greedy
+ * bot can always power up; the start straight is flat so nobody creeps
+ * downhill during the countdown.
+ */
+const SUMMIT_PASS: TrackDef = {
+  id: 'summit-pass',
+  name: 'Summit Pass',
+  verts: [
+    { x: -30, y: -55, w: 7, dirt: 4 }, // 0: start, valley straight (flat)
+    { x: 15, y: -55, w: 7, dirt: 4 },
+    { x: 55, y: -48, w: 7, dirt: 3 }, // 2: turn one, the climb begins
+    { x: 85, y: -28, w: 7, dirt: 3, h: 2.5 },
+    { x: 98, y: 2, w: 8, dirt: 3, h: 6 }, // climbing right-hand sweep
+    { x: 92, y: 32, w: 8, dirt: 3, h: 9.5 },
+    { x: 68, y: 52, w: 7, h: 12 }, // 6: summit approach
+    { x: 38, y: 62, w: 6, h: 13.5 }, // 7: the crest — narrow, no runoff
+    { x: 5, y: 58, w: 7, h: 13 }, // 8: over the top, descent begins
+    { x: -25, y: 45, w: 8, dirt: 4, h: 10 },
+    { x: -45, y: 20, w: 6, h: 6.5 }, // 10: walled downhill ess
+    { x: -75, y: 30, w: 6, h: 7.5 }, // 11: counter-rise kicker
+    { x: -98, y: 12, w: 7, dirt: 3, h: 5 },
+    { x: -105, y: -18, w: 7, dirt: 3, h: 2.5 }, // final drop
+    { x: -88, y: -44, w: 7, dirt: 4, h: 0.5 },
+    { x: -60, y: -55, w: 7, dirt: 4 },
+  ],
+  checkpointVerts: [0, 2, 4, 6, 8, 10, 12, 14],
+  itemVerts: [1, 6, 12],
+  boostPads: [
+    { vert: 8, t: 0.5 }, // crest exit: launch the descent
+    { vert: 15, t: 0.5 },
+  ],
+  spawns: [
+    [-35, -57.4, 0],
+    [-35, -52.6, 0],
+    [-39, -57.4, 0],
+    [-39, -52.6, 0],
+  ],
+  theme: {
+    sky: '#8fc1e3',
+    fog: '#a9cfe8',
+    ground: '#5c8a50',
+    asphalt: '#41454f',
+    dirt: '#8c7a4e',
+    wallA: '#d94f3d',
+    wallB: '#f2efe4',
+    decor: 'trees',
+  },
+};
+
 export const TRACK_DEFS: readonly TrackDef[] = [
   SUNNY_CIRCUIT,
   CANYON_SPRINT,
   NEON_GAUNTLET,
   GLACIER_GP,
+  SUMMIT_PASS,
 ];

@@ -24,6 +24,7 @@ import {
   type Vec2Fx,
 } from '@mk/sim';
 import type { KartRender } from './game.js';
+import { Terrain } from './terrain.js';
 
 export const KART_COLORS = ['#ff4757', '#2e86ff', '#ffd23f', '#3fd06b'];
 
@@ -112,6 +113,7 @@ interface KartVisual {
   sparkR: THREE.Mesh;
   sparkMat: THREE.MeshBasicMaterial;
   skidAcc: number;
+  pitch: number; // smoothed slope tilt (rad)
 }
 
 /** Render-only cosmetic colors for one kart (resolved from a PlayerStyle). */
@@ -128,6 +130,7 @@ export function defaultLook(seat: number): KartLook {
 
 function buildKart(look: KartLook, name: string | null): KartVisual {
   const group = new THREE.Group();
+  group.rotation.order = 'YZX'; // yaw, then slope pitch in the kart's frame
   const mat = new THREE.MeshStandardMaterial({ color: look.primary, roughness: 0.5, metalness: 0.15 });
   const accentMat = new THREE.MeshStandardMaterial({ color: look.accent, roughness: 0.5, metalness: 0.15 });
   const dark = new THREE.MeshStandardMaterial({ color: '#1c1f26', roughness: 0.9 });
@@ -204,7 +207,7 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   group.add(sparkR);
 
   if (name) group.add(nameSprite(name, look.primary));
-  return { group, flame, sparkL, sparkR, sparkMat, skidAcc: 0 };
+  return { group, flame, sparkL, sparkR, sparkMat, skidAcc: 0, pitch: 0 };
 }
 
 function loopShapePoints(loop: Vec2Fx[]): THREE.Vector2[] {
@@ -222,6 +225,7 @@ class ParticlePool {
   private readonly life: Float32Array;
   private readonly maxLife: Float32Array;
   private readonly baseCol: Float32Array;
+  private readonly floorY: Float32Array;
   private readonly posAttr: THREE.BufferAttribute;
   private readonly colAttr: THREE.BufferAttribute;
   private head = 0;
@@ -231,6 +235,7 @@ class ParticlePool {
     this.life = new Float32Array(n);
     this.maxLife = new Float32Array(n);
     this.baseCol = new Float32Array(n * 3);
+    this.floorY = new Float32Array(n);
     this.posAttr = new THREE.BufferAttribute(new Float32Array(n * 3).fill(-1000), 3);
     this.colAttr = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
     const geo = new THREE.BufferGeometry();
@@ -250,7 +255,7 @@ class ParticlePool {
   emit(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
-    color: THREE.Color, life: number,
+    color: THREE.Color, life: number, floor = 0,
   ): void {
     const i = this.head;
     this.head = (this.head + 1) % this.n;
@@ -261,6 +266,7 @@ class ParticlePool {
     this.baseCol[j] = color.r; this.baseCol[j + 1] = color.g; this.baseCol[j + 2] = color.b;
     this.life[i] = life;
     this.maxLife[i] = life;
+    this.floorY[i] = floor;
   }
 
   update(dt: number): void {
@@ -279,8 +285,9 @@ class ParticlePool {
       pos[j]! += this.vel[j]! * dt;
       pos[j + 1]! += this.vel[j + 1]! * dt;
       pos[j + 2]! += this.vel[j + 2]! * dt;
-      if (pos[j + 1]! < 0.04) {
-        pos[j + 1] = 0.04;
+      const floor = this.floorY[i]! + 0.04;
+      if (pos[j + 1]! < floor) {
+        pos[j + 1] = floor;
         this.vel[j + 1]! *= -0.35; // ground bounce, damped
         this.vel[j]! *= 0.7;
         this.vel[j + 2]! *= 0.7;
@@ -325,12 +332,11 @@ class SkidPool {
     }
   }
 
-  stamp(x: number, z: number, yaw: number): void {
+  stamp(x: number, z: number, yaw: number, y = 0.018): void {
     const i = this.head;
     this.head = (this.head + 1) % this.n;
     const m = this.meshes[i]!;
-    m.position.x = x;
-    m.position.z = z;
+    m.position.set(x, y, z);
     m.rotation.y = yaw;
     m.visible = true;
     this.life[i] = 1;
@@ -534,15 +540,24 @@ export class GameScene {
   private world: THREE.Group | null = null;
   private worldTrackId: string | null = null;
   private track: TrackRuntime = getTrack(undefined);
+  private terrain = new Terrain(getTrack(undefined));
 
   private karts: KartVisual[] = [];
   private itemMeshes: THREE.Mesh[] = [];
+  private itemBaseY: number[] = [];
   private itemWasActive: boolean[] = [];
   private itemPop: number[] = [];
   private padMeshes: THREE.Mesh[] = [];
   private shellMeshes: THREE.Mesh[] = [];
   private oilMeshes: THREE.Mesh[] = [];
-  private shards: { mesh: THREE.Mesh; vx: number; vy: number; vz: number; life: number }[] = [];
+  private shards: {
+    mesh: THREE.Mesh;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+    floor: number;
+  }[] = [];
   private shardGeo = new THREE.BoxGeometry(0.26, 0.26, 0.26);
 
   private ghost: KartVisual | null = null;
@@ -640,8 +655,10 @@ export class GameScene {
       disposeTree(this.world);
     }
     this.track = track;
+    this.terrain = new Terrain(track);
     this.worldTrackId = track.def.id;
     this.itemMeshes = [];
+    this.itemBaseY = [];
     this.itemWasActive = [];
     this.itemPop = [];
     this.padMeshes = [];
@@ -734,33 +751,91 @@ export class GameScene {
     ground.name = 'ground';
     g.add(ground);
 
-    // dirt corridor (fence to fence) under the asphalt — only if the track has dirt
-    if (track.hasDirt) {
-      const dirtShape = new THREE.Shape(loopShapePoints(track.fenceOuter));
-      dirtShape.holes.push(new THREE.Path(loopShapePoints(track.fenceInner)));
-      const dirtGeo = new THREE.ShapeGeometry(dirtShape, 4);
-      dirtGeo.rotateX(-Math.PI / 2);
-      const dirt = new THREE.Mesh(
-        dirtGeo,
-        new THREE.MeshStandardMaterial({ color: th.dirt, roughness: 1 }),
-      );
-      dirt.position.y = 0.0;
-      dirt.name = 'ground';
-      g.add(dirt);
-    }
+    const dirtMat = new THREE.MeshStandardMaterial({ color: th.dirt, roughness: 1 });
+    const asphaltMat = new THREE.MeshStandardMaterial({ color: th.asphalt, roughness: 0.95 });
 
-    // asphalt ribbon on top
-    const shape = new THREE.Shape(loopShapePoints(track.outer));
-    shape.holes.push(new THREE.Path(loopShapePoints(track.inner)));
-    const trackGeo = new THREE.ShapeGeometry(shape, 4);
-    trackGeo.rotateX(-Math.PI / 2);
-    const asphalt = new THREE.Mesh(
-      trackGeo,
-      new THREE.MeshStandardMaterial({ color: th.asphalt, roughness: 0.95 }),
-    );
-    asphalt.position.y = 0.015;
-    asphalt.name = 'ground';
-    g.add(asphalt);
+    if (track.hasHills) {
+      // hill track: corridor surfaces are triangle strips between two rims
+      // that follow the per-vertex elevation; the sim's height field is
+      // linear along segments and constant across the width, so loop-vertex
+      // resolution reproduces it exactly
+      const hOf = (i: number) => fxToFloat(track.heights[i]!);
+      type Rim = [number, number, number][];
+      const strip = (a: Rim, b: Rim, mat: THREE.MeshStandardMaterial): THREE.Mesh => {
+        const n = a.length;
+        const pos = new Float32Array(n * 6);
+        for (let i = 0; i < n; i++) {
+          pos[i * 6] = a[i]![0]; pos[i * 6 + 1] = a[i]![1]; pos[i * 6 + 2] = a[i]![2];
+          pos[i * 6 + 3] = b[i]![0]; pos[i * 6 + 4] = b[i]![1]; pos[i * 6 + 5] = b[i]![2];
+        }
+        const idx: number[] = [];
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n;
+          idx.push(i * 2, i * 2 + 1, j * 2, i * 2 + 1, j * 2 + 1, j * 2);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setIndex(idx);
+        geo.computeVertexNormals();
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.name = 'ground';
+        return mesh;
+      };
+      const rim = (loop: Vec2Fx[], lift: number): Rim =>
+        loop.map((p, i) => [fxToFloat(p.x), hOf(i) + lift, -fxToFloat(p.y)]);
+
+      if (track.hasDirt) g.add(strip(rim(track.fenceInner, 0), rim(track.fenceOuter, 0), dirtMat));
+      g.add(strip(rim(track.inner, 0.015), rim(track.outer, 0.015), asphaltMat));
+
+      // ground aprons: corridor elevation falls off smoothly to the valley
+      // floor on both sides (same cosine the Terrain sampler uses, so decor
+      // placed on it stands flush)
+      const apronMat = new THREE.MeshStandardMaterial({ color: th.ground, roughness: 1 });
+      const apron = (fence: Vec2Fx[], outward: boolean, reach: number): void => {
+        const dirs = fence.map((p, i) => {
+          const c = track.centerline[i]!;
+          const dx = fxToFloat(p.x) - fxToFloat(c.x);
+          const dz = -fxToFloat(p.y) + fxToFloat(c.y);
+          const l = Math.hypot(dx, dz) || 1;
+          return [dx / l, dz / l] as const;
+        });
+        const ringAt = (u: number): Rim =>
+          fence.map((p, i) => [
+            fxToFloat(p.x) + dirs[i]![0] * reach * u,
+            (hOf(i) * (Math.cos(Math.PI * u) + 1)) / 2 - 0.02,
+            -fxToFloat(p.y) + dirs[i]![1] * reach * u,
+          ]);
+        const RINGS = 4;
+        for (let k = 0; k < RINGS; k++) {
+          const a = ringAt(k / RINGS);
+          const b = ringAt((k + 1) / RINGS);
+          g.add(outward ? strip(a, b, apronMat) : strip(b, a, apronMat));
+        }
+      };
+      apron(track.fenceOuter, true, 26);
+      apron(track.fenceInner, false, 13);
+    } else {
+      // flat track: 2D loop shapes laid on the ground plane (original path)
+      if (track.hasDirt) {
+        const dirtShape = new THREE.Shape(loopShapePoints(track.fenceOuter));
+        dirtShape.holes.push(new THREE.Path(loopShapePoints(track.fenceInner)));
+        const dirtGeo = new THREE.ShapeGeometry(dirtShape, 4);
+        dirtGeo.rotateX(-Math.PI / 2);
+        const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+        dirt.position.y = 0.0;
+        dirt.name = 'ground';
+        g.add(dirt);
+      }
+
+      const shape = new THREE.Shape(loopShapePoints(track.outer));
+      shape.holes.push(new THREE.Path(loopShapePoints(track.inner)));
+      const trackGeo = new THREE.ShapeGeometry(shape, 4);
+      trackGeo.rotateX(-Math.PI / 2);
+      const asphalt = new THREE.Mesh(trackGeo, asphaltMat);
+      asphalt.position.y = 0.015;
+      asphalt.name = 'ground';
+      g.add(asphalt);
+    }
 
     // walls along the fence — the exact segments the sim collides with
     const wallMatA = new THREE.MeshStandardMaterial({
@@ -778,14 +853,18 @@ export class GameScene {
     track.walls.forEach((w, i) => {
       const a = toV3(w.x0, w.y0);
       const b = toV3(w.x1, w.y1);
-      const lenW = a.distanceTo(b);
+      a.y = this.terrain.heightAt(a.x, a.z);
+      b.y = this.terrain.heightAt(b.x, b.z);
+      const run = Math.hypot(b.x - a.x, b.z - a.z);
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(lenW + 0.3, 0.85, 0.55),
+        new THREE.BoxGeometry(a.distanceTo(b) + 0.3, 0.85, 0.55),
         i % 2 === 0 ? wallMatA : wallMatB,
       );
       mesh.position.copy(a).add(b).multiplyScalar(0.5);
-      mesh.position.y = 0.42;
+      mesh.position.y += 0.42;
+      mesh.rotation.order = 'YZX'; // yaw, then pitch along the fence slope
       mesh.rotation.y = yawOf(a, b);
+      mesh.rotation.z = Math.atan2(b.y - a.y, run);
       g.add(mesh);
     });
 
@@ -796,6 +875,7 @@ export class GameScene {
     const gateLen = g0.distanceTo(g1);
     const gateMid = g0.clone().add(g1).multiplyScalar(0.5);
     const gateYaw = yawOf(g0, g1);
+    const gateH = this.terrain.heightAt(gateMid.x, gateMid.z);
 
     const strip = new THREE.Mesh(
       new THREE.PlaneGeometry(gateLen, 2.2),
@@ -803,21 +883,21 @@ export class GameScene {
     );
     strip.rotation.x = -Math.PI / 2;
     strip.rotation.z = gateYaw;
-    strip.position.copy(gateMid).setY(0.03);
+    strip.position.copy(gateMid).setY(gateH + 0.03);
     g.add(strip);
 
     const postGeo = new THREE.BoxGeometry(0.35, 5.6, 0.35);
     const postMat = new THREE.MeshStandardMaterial({ color: '#22252e', roughness: 0.6 });
     for (const end of [g0, g1]) {
       const post = new THREE.Mesh(postGeo, postMat);
-      post.position.copy(end).setY(2.8);
+      post.position.copy(end).setY(gateH + 2.8);
       g.add(post);
     }
     const banner = new THREE.Mesh(
       new THREE.PlaneGeometry(gateLen, 1.4),
       new THREE.MeshBasicMaterial({ map: checkerTexture(20, 2), side: THREE.DoubleSide }),
     );
-    banner.position.copy(gateMid).setY(5.0);
+    banner.position.copy(gateMid).setY(gateH + 5.0);
     banner.rotation.y = gateYaw;
     g.add(banner);
 
@@ -834,8 +914,13 @@ export class GameScene {
         }),
       );
       mesh.geometry.rotateX(-Math.PI / 2);
-      mesh.position.set(fxToFloat(p.cx), 0.025, -fxToFloat(p.cy));
-      mesh.rotation.y = Math.atan2(fxToFloat(p.dy), fxToFloat(p.dx));
+      const px = fxToFloat(p.cx);
+      const pz = -fxToFloat(p.cy);
+      const yaw = Math.atan2(fxToFloat(p.dy), fxToFloat(p.dx));
+      mesh.position.set(px, this.terrain.heightAt(px, pz) + 0.025, pz);
+      mesh.rotation.order = 'YZX'; // yaw, then pitch with the road
+      mesh.rotation.y = yaw;
+      mesh.rotation.z = Math.atan(this.terrain.slopeAlong(px, pz, yaw));
       g.add(mesh);
       this.padMeshes.push(mesh);
     }
@@ -853,9 +938,11 @@ export class GameScene {
     const shieldGeo = shieldGeometry();
     for (const spawn of track.itemSpawns) {
       const mesh = new THREE.Mesh(shieldGeo, itemMat);
-      mesh.position.copy(toV3(spawn.x, spawn.y)).setY(0.95);
+      const base = this.terrain.heightAt(fxToFloat(spawn.x), -fxToFloat(spawn.y));
+      mesh.position.copy(toV3(spawn.x, spawn.y)).setY(base + 0.95);
       g.add(mesh);
       this.itemMeshes.push(mesh);
+      this.itemBaseY.push(base);
       this.itemWasActive.push(true);
       this.itemPop.push(1);
     }
@@ -954,7 +1041,7 @@ export class GameScene {
           break;
         }
       }
-      obj.position.set(px, 0, -py);
+      obj.position.set(px, this.terrain.groundHeightAt(px, -py), -py);
       g.add(obj);
     }
   }
@@ -971,6 +1058,10 @@ export class GameScene {
       const visual = buildKart(looks?.[i] ?? defaultLook(i), name);
       const spawn = this.track.spawns[i]!;
       visual.group.position.copy(toV3(spawn.x, spawn.y));
+      visual.group.position.y = this.terrain.heightAt(
+        visual.group.position.x,
+        visual.group.position.z,
+      );
       visual.group.rotation.y = (spawn.heading / 65536) * Math.PI * 2;
       this.karts.push(visual);
       this.scene.add(visual.group);
@@ -1016,8 +1107,9 @@ export class GameScene {
     if (!v) return;
     v.group.visible = k !== null;
     if (!k) return;
-    v.group.position.set(k.x, 0, k.z);
+    v.group.position.set(k.x, this.terrain.heightAt(k.x, k.z), k.z);
     v.group.rotation.y = k.headingRad;
+    v.group.rotation.z = Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
     v.flame.visible = k.boosting;
     v.sparkL.visible = false;
     v.sparkR.visible = false;
@@ -1028,11 +1120,16 @@ export class GameScene {
     karts.forEach((k, i) => {
       const v = this.karts[i];
       if (!v) return;
-      v.group.position.set(k.x, 0, k.z);
+      const gy = this.terrain.heightAt(k.x, k.z);
+      v.group.position.set(k.x, gy, k.z);
       // spin-out: two full visual turns over the spin duration
       const spinYaw =
         k.spinTicks > 0 ? ((SPIN_OUT_TICKS - k.spinTicks) / SPIN_OUT_TICKS) * Math.PI * 4 : 0;
       v.group.rotation.y = k.headingRad + spinYaw;
+      // nose follows the road grade (smoothed: the gradient steps per segment)
+      const targetPitch = Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
+      v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 8);
+      v.group.rotation.z = v.pitch;
       v.flame.visible = k.boosting;
       if (k.boosting) {
         const s = 0.85 + Math.random() * 0.5;
@@ -1064,17 +1161,17 @@ export class GameScene {
           const lvx = -(1.5 + Math.random() * 2.5);
           const lvz = side * (0.6 + Math.random() * 1.6);
           this.particles.emit(
-            worldX(-0.62, side), 0.12, worldZ(-0.62, side),
+            worldX(-0.62, side), gy + 0.12, worldZ(-0.62, side),
             lvx * cy + lvz * sy, 1.2 + Math.random() * 2.2, -lvx * sy + lvz * cy,
-            v.sparkMat.color, 0.22 + Math.random() * 0.18,
+            v.sparkMat.color, 0.22 + Math.random() * 0.18, gy,
           );
         }
         // skid marks under both rear wheels at a fixed cadence
         v.skidAcc += dt;
         while (v.skidAcc > 0.034) {
           v.skidAcc -= 0.034;
-          this.skids.stamp(worldX(-0.62, 0.55), worldZ(-0.62, 0.55), yaw);
-          this.skids.stamp(worldX(-0.62, -0.55), worldZ(-0.62, -0.55), yaw);
+          this.skids.stamp(worldX(-0.62, 0.55), worldZ(-0.62, 0.55), yaw, gy + 0.018);
+          this.skids.stamp(worldX(-0.62, -0.55), worldZ(-0.62, -0.55), yaw, gy + 0.018);
         }
       } else {
         v.skidAcc = 0;
@@ -1087,10 +1184,10 @@ export class GameScene {
           const lvz = (Math.random() - 0.5) * 1.2;
           this.particles.emit(
             worldX(-1.1, (Math.random() - 0.5) * 0.3),
-            0.45 + (Math.random() - 0.5) * 0.2,
+            gy + 0.45 + (Math.random() - 0.5) * 0.2,
             worldZ(-1.1, (Math.random() - 0.5) * 0.3),
             lvx * cy + lvz * sy, 0.4 + Math.random(), -lvx * sy + lvz * cy,
-            EMBER_COLOR, 0.28,
+            EMBER_COLOR, 0.28, gy,
           );
         }
       }
@@ -1100,9 +1197,9 @@ export class GameScene {
         const lz = (Math.random() - 0.5) * 0.9;
         const lvx = -(0.5 + Math.random());
         this.particles.emit(
-          worldX(-0.8, lz), 0.08, worldZ(-0.8, lz),
+          worldX(-0.8, lz), gy + 0.08, worldZ(-0.8, lz),
           lvx * cy, 1.2 + Math.random() * 1.5, -lvx * sy,
-          DUST_COLOR, 0.45 + Math.random() * 0.3,
+          DUST_COLOR, 0.45 + Math.random() * 0.3, gy,
         );
       }
     });
@@ -1119,10 +1216,11 @@ export class GameScene {
     const me = karts[localIdx];
     if (me) {
       const dir = new THREE.Vector3(Math.cos(me.headingRad), 0, -Math.sin(me.headingRad));
-      const desired = new THREE.Vector3(me.x, 0, me.z)
-        .addScaledVector(dir, -7.6)
-        .add(new THREE.Vector3(0, 4.1, 0));
-      const look = new THREE.Vector3(me.x, 1.1, me.z).addScaledVector(dir, 4.0);
+      const desired = new THREE.Vector3(me.x, 0, me.z).addScaledVector(dir, -7.6);
+      // ride the terrain: sample under the camera so crests drop away ahead
+      desired.y = this.terrain.heightAt(desired.x, desired.z) + 4.1;
+      const meY = this.terrain.heightAt(me.x, me.z);
+      const look = new THREE.Vector3(me.x, meY + 1.1, me.z).addScaledVector(dir, 4.0);
       if (!this.camInit) {
         this.camera.position.copy(desired);
         this.camInit = true;
@@ -1166,7 +1264,9 @@ export class GameScene {
       const s = state?.shells[i];
       mesh.visible = !!s && s.ttl > 0;
       if (s && s.ttl > 0) {
-        mesh.position.set(fxToFloat(s.x), fxToFloat(SHELL_RADIUS), -fxToFloat(s.y));
+        const sx = fxToFloat(s.x);
+        const sz = -fxToFloat(s.y);
+        mesh.position.set(sx, this.terrain.heightAt(sx, sz) + fxToFloat(SHELL_RADIUS), sz);
         mesh.rotation.y = this.t * 9; // menacing wobble-spin
       }
     });
@@ -1174,7 +1274,9 @@ export class GameScene {
       const o = state?.oils[i];
       mesh.visible = !!o && o.ttl > 0;
       if (o && o.ttl > 0) {
-        mesh.position.set(fxToFloat(o.x), 0.03, -fxToFloat(o.y));
+        const ox = fxToFloat(o.x);
+        const oz = -fxToFloat(o.y);
+        mesh.position.set(ox, this.terrain.heightAt(ox, oz) + 0.03, oz);
         const m = mesh.material as THREE.MeshStandardMaterial;
         m.opacity = Math.min(0.9, o.ttl / 90); // fade out as it expires
       }
@@ -1205,6 +1307,7 @@ export class GameScene {
         vz: Math.sin(a) * (2.5 + Math.random() * 2),
         vy: 3.5 + Math.random() * 2.5,
         life: 0.6,
+        floor: pos.y - 0.9, // roughly the road under the floating pickup
       });
       this.scene.add(mesh);
     }
@@ -1222,7 +1325,7 @@ export class GameScene {
       }
       s.vy -= 14 * dt;
       s.mesh.position.x += s.vx * dt;
-      s.mesh.position.y = Math.max(0.1, s.mesh.position.y + s.vy * dt);
+      s.mesh.position.y = Math.max(s.floor + 0.1, s.mesh.position.y + s.vy * dt);
       s.mesh.position.z += s.vz * dt;
       s.mesh.rotation.x += dt * 7;
       s.mesh.rotation.y += dt * 9;
@@ -1245,7 +1348,7 @@ export class GameScene {
         mesh.scale.set(s, s, s);
         // spin around y only so the badge keeps its point-down silhouette
         mesh.rotation.y += dt * 1.4;
-        mesh.position.y = 0.95 + Math.sin(this.t * 1.7 + i * 1.3) * 0.12;
+        mesh.position.y = this.itemBaseY[i]! + 0.95 + Math.sin(this.t * 1.7 + i * 1.3) * 0.12;
       }
     });
   }
