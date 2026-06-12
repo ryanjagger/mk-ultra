@@ -56,12 +56,22 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('leaveRoom') }),
   z.object({ t: z.literal('setReady'), ready: z.boolean() }),
   z.object({ t: z.literal('setTrack'), track: trackChoice }), // host-only, lobby-only
+  // host-only, lobby-only: 0 = single races, N>=2 = Grand Prix of N races
+  z.object({ t: z.literal('setCup'), races: z.number().int().min(0).max(8) }),
   z.object({ t: z.literal('addBot') }), // host-only, lobby-only
   z.object({ t: z.literal('removeBot') }), // host-only, lobby-only (removes the last bot)
   z.object({ t: z.literal('startRace') }),
   z.object({ t: z.literal('input'), f: frame, m: inputMask }),
   z.object({ t: z.literal('hash'), f: frame, h: hash32 }),
-  z.object({ t: z.literal('raceEnded') }),
+  z.object({
+    t: z.literal('raceEnded'),
+    /**
+     * Kart indices in finish order, computed from the deterministic sim.
+     * First reporter wins (all clients agree when in sync); the server
+     * never simulates, so this is how cup points learn the results.
+     */
+    placements: z.array(z.number().int().min(0).max(3)).max(4).optional(),
+  }),
   z.object({ t: z.literal('getReplay') }), // last finished race of my room
   z.object({ t: z.literal('ping'), pt: z.number() }),
 ]);
@@ -99,6 +109,15 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     state: z.enum(['lobby', 'racing']),
     you: z.number().int().min(0).max(3),
     players: z.array(RoomPlayerSchema).max(4),
+    /** present while a Grand Prix is configured; points align with players */
+    cup: z
+      .object({
+        raceIndex: z.number().int().min(0).max(8), // races completed
+        totalRaces: z.number().int().min(2).max(8),
+        points: z.array(z.number().int().min(0).max(999)).max(4),
+        done: z.boolean(),
+      })
+      .optional(),
   }),
   z.object({ t: z.literal('leftRoom') }),
   z.object({

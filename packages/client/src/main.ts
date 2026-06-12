@@ -306,12 +306,20 @@ net.on('leftRoom', () => {
 
 function renderLobby(): void {
   if (!lastRoom) return;
+  const cup = lastRoom.cup;
   $('lobby-code').textContent = lastRoom.code;
-  $('lobby-meta').textContent = `${lastRoom.isPublic ? 'public' : 'private'} · ${lastRoom.laps} laps`;
+  $('lobby-meta').textContent =
+    `${lastRoom.isPublic ? 'public' : 'private'} · ${lastRoom.laps} laps` +
+    (cup && !cup.done ? ` · race ${cup.raceIndex + 1}/${cup.totalRaces}` : '');
   const isHostNow = lastRoom.you === 0;
   lobbyTrackSel.disabled = !isHostNow;
   if (document.activeElement !== lobbyTrackSel && lobbyTrackSel.value !== lastRoom.track) {
     lobbyTrackSel.value = lastRoom.track;
+  }
+  const cupSel = $<HTMLSelectElement>('lobby-cup');
+  cupSel.disabled = !isHostNow;
+  if (document.activeElement !== cupSel) {
+    cupSel.value = String(cup?.totalRaces ?? 0);
   }
   if (screen === 'lobby') showBackdrop(lastRoom.track);
   const ul = $('lobby-players');
@@ -338,6 +346,12 @@ function renderLobby(): void {
       tag.textContent = p.ready ? '✓ ready' : 'waiting';
     }
     li.append(dot, nm, lvl, tag);
+    if (cup) {
+      const pts = document.createElement('span');
+      pts.className = 'lvl';
+      pts.textContent = `${cup.points[i] ?? 0} pts`;
+      li.appendChild(pts);
+    }
     ul.appendChild(li);
   });
 
@@ -351,8 +365,19 @@ function renderLobby(): void {
   $('btn-start').classList.toggle('hidden', !isHost);
   const startBtn = $<HTMLButtonElement>('btn-start');
   startBtn.disabled = !allReady;
+  startBtn.textContent = cup && cup.raceIndex > 0 && !cup.done ? 'Next race' : 'Start race';
   const me = lastRoom.players[lastRoom.you];
   $('btn-ready').textContent = me?.ready ? 'Not ready' : 'Ready up';
+  if (cup?.done) {
+    // cup complete: crown the points leader
+    let best = 0;
+    cup.points.forEach((p, i) => {
+      if (p > (cup.points[best] ?? 0)) best = i;
+    });
+    const winner = lastRoom.players[best]?.name ?? '?';
+    $('lobby-hint').textContent = `🏆 ${winner} wins the cup with ${cup.points[best]} pts!`;
+    return;
+  }
   $('lobby-hint').textContent = isHost
     ? allReady
       ? others.length === 0
@@ -370,6 +395,9 @@ $('btn-ready').addEventListener('click', () => {
 });
 lobbyTrackSel.addEventListener('change', () => {
   net.send({ t: 'setTrack', track: lobbyTrackSel.value });
+});
+$<HTMLSelectElement>('lobby-cup').addEventListener('change', (e) => {
+  net.send({ t: 'setCup', races: Number((e.target as HTMLSelectElement).value) });
 });
 $('btn-add-bot').addEventListener('click', () => net.send({ t: 'addBot' }));
 $('btn-remove-bot').addEventListener('click', () => net.send({ t: 'removeBot' }));

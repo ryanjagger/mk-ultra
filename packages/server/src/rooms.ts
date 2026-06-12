@@ -36,6 +36,8 @@ interface Seat {
   ready: boolean;
   connected: boolean;
   bot: boolean;
+  /** Grand Prix points; travels with the seat across races */
+  points: number;
 }
 
 interface RaceState {
@@ -65,7 +67,14 @@ export interface Room {
   seats: Seat[];
   race: RaceState | null;
   lastReplay: ReplayMsg | null;
+  /** Grand Prix length; 0 = single races */
+  cupRaces: number;
+  /** cup races completed */
+  cupRaceIndex: number;
 }
+
+/** Cup points by finish position. */
+const CUP_POINTS = [10, 7, 4, 2];
 
 /** Registry id or 'random'; anything else falls back to 'random'. */
 function sanitizeTrack(track: string | undefined): string {
@@ -167,6 +176,19 @@ export class GameLobby {
         this.broadcastRoom(room);
         return;
       }
+      case 'setCup': {
+        const room = ctx.room;
+        if (!room || room.state !== 'lobby') return;
+        if (this.seatIndexOf(ctx) !== 0) {
+          ctx.conn.send({ t: 'error', message: 'Only the host can change the mode' });
+          return;
+        }
+        room.cupRaces = msg.races >= 2 ? msg.races : 0;
+        room.cupRaceIndex = 0;
+        for (const s of room.seats) s.points = 0;
+        this.broadcastRoom(room);
+        return;
+      }
       case 'addBot': {
         const room = ctx.room;
         if (!room || room.state !== 'lobby') return;
@@ -186,6 +208,7 @@ export class GameLobby {
           ready: true,
           connected: true,
           bot: true,
+          points: 0,
         });
         this.broadcastRoom(room);
         return;
@@ -218,7 +241,7 @@ export class GameLobby {
       case 'raceEnded': {
         const room = ctx.room;
         if (!room || room.state !== 'racing') return;
-        this.endRace(room);
+        this.endRace(room, msg.placements);
         return;
       }
       case 'getReplay': {
@@ -252,9 +275,21 @@ export class GameLobby {
       laps,
       track,
       state: 'lobby',
-      seats: [{ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true, bot: false }],
+      seats: [
+        {
+          ctx,
+          name: ctx.name,
+          style: ctx.style,
+          ready: false,
+          connected: true,
+          bot: false,
+          points: 0,
+        },
+      ],
       race: null,
       lastReplay: null,
+      cupRaces: 0,
+      cupRaceIndex: 0,
     };
     this.rooms.set(room.code, room);
     ctx.room = room;
@@ -277,6 +312,7 @@ export class GameLobby {
       ready: false,
       connected: true,
       bot: false,
+      points: 0,
     });
     ctx.room = room;
     // humans before bots: the host (seat 0) must always be a human
@@ -334,6 +370,11 @@ export class GameLobby {
       ctx.conn.send({ t: 'error', message: 'Not everyone is ready' });
       return;
     }
+    // starting fresh after a finished cup rewinds the standings
+    if (room.cupRaces > 0 && room.cupRaceIndex >= room.cupRaces) {
+      room.cupRaceIndex = 0;
+      for (const s of room.seats) s.points = 0;
+    }
     room.state = 'racing';
     const kartCount = room.seats.length;
     const trackId =
@@ -369,8 +410,18 @@ export class GameLobby {
     });
   }
 
-  private endRace(room: Room): void {
+  private endRace(room: Room, placements?: readonly number[]): void {
     if (room.race) room.lastReplay = this.buildReplay(room, room.race);
+    // cup scoring: first reporter's deterministic placements stand
+    if (room.cupRaces > 0 && placements) {
+      const seen = new Set<number>();
+      placements.forEach((kartIdx, pos) => {
+        if (seen.has(kartIdx) || kartIdx >= room.seats.length) return;
+        seen.add(kartIdx);
+        room.seats[kartIdx]!.points += CUP_POINTS[pos] ?? 0;
+      });
+      room.cupRaceIndex += 1;
+    }
     room.state = 'lobby';
     room.race = null;
     // disconnected racers vacate their seats now; bots stay for the next race
@@ -488,6 +539,15 @@ export class GameLobby {
       bot: s.bot,
       style: s.style,
     }));
+    const cup =
+      room.cupRaces > 0
+        ? {
+            raceIndex: Math.min(room.cupRaceIndex, room.cupRaces),
+            totalRaces: room.cupRaces,
+            points: room.seats.map((s) => s.points),
+            done: room.cupRaceIndex >= room.cupRaces,
+          }
+        : undefined;
     room.seats.forEach((seat, i) => {
       seat.ctx?.conn.send({
         t: 'room',
@@ -498,6 +558,7 @@ export class GameLobby {
         state: room.state,
         you: i,
         players,
+        cup,
       });
     });
   }

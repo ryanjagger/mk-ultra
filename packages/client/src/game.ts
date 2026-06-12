@@ -203,7 +203,8 @@ export class RaceController implements RaceLike {
 
     if (this.state.phase === PHASE_FINISHED && !this.raceEndedSent) {
       this.raceEndedSent = true;
-      this.net.send({ t: 'raceEnded' });
+      // deterministic placements ride along for cup scoring (first reporter wins)
+      this.net.send({ t: 'raceEnded', placements: computePlacements(this.state) });
     }
   }
 
