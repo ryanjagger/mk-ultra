@@ -15,6 +15,73 @@ padded one.
 
 ---
 
+## 2026-06-12
+
+### Progress
+
+- The v2 batch, ten commits on `feat/v2-features` (`ccdd38e..a8383bc`),
+  every feature gated by tests before its commit: gamepad support,
+  countdown rev-boost, slipstream with a slingshot exit, items v3
+  (lightning / triple boost / homing shells on the placement-weighted
+  tables), ramp jumps with airborne physics, two new tracks (Mesa Drop —
+  hills + the big jump; The Colosseum — battle arena), Grand Prix cups,
+  battle mode with balloons, and verified ghost leaderboards. Suite grew
+  97 → 160 tests; sim snapshot went KART_INTS 13 → 19 across five
+  features without touching rollback or the relay model.
+- Leaderboards are the architecture payoff: submissions are input
+  recordings, the server replays them through the sim in Node (its one,
+  offline simulation) and stores the time the sim computed. Verified
+  end-to-end against the live server: a real run accepted with the exact
+  sim time, a truncated forgery rejected, the board rendered in the
+  results screen, and the #1 ghost downloaded and raced.
+
+### AI interactions that accelerated learning
+
+- **Reproduce in the sim, not the browser.** The battle smoke test showed
+  zero balloon pops; a 20-line scratch vitest with counters (pickups,
+  uses, spins) reproduced it headlessly in seconds and made the cause
+  obvious. Browser-side that would have been an hour of squinting.
+- **When pixels die, verify through state.** The headless browser's
+  GPU/RAF stack wedged mid-session and screenshots hung forever; the
+  `window.__mk` debug hook over `agent-browser eval` verified everything
+  pixel-free — battle resolution, arena pool, jump airtime, leaderboard
+  DOM — and was faster than screenshot-reading anyway.
+- **Feature-per-commit with gates between** kept ten sim-touching changes
+  honest: each one ran the full suite before committing, so the one real
+  regression (battle bots) surfaced inside its own feature, not three
+  features later.
+
+### Challenges → solutions
+
+- **Battle bots orbited a dead gate.** Battles skip checkpoint advancement,
+  so `nextCp` froze at 1 and the greedy gate-chaser circled one point for
+  the whole round — one item pickup in 150s, zero fights. Root cause: the
+  racing bot's goal signal doesn't exist in battle. Fix: a battle brain —
+  chase the nearest live item box when empty-handed, the nearest surviving
+  rival when armed, fire in the forward half-plane. A 4-bot brawl now
+  resolves by elimination in ~70s. Lesson: reusing an AI across modes
+  means re-checking what its objective function still means.
+- **`document.hidden` is not "RAF is running".** The worker heartbeat only
+  advanced the sim when the tab was hidden; an occluded/never-painted
+  window reports `visibilityState: 'visible'` while RAF never fires, so
+  the sim froze at tick 0. Fix: heartbeat advances whenever RAF has
+  stalled >250ms, regardless of visibility. Found because the headless
+  browser hit exactly that state; real players behind a fullscreen app
+  would have too.
+- **Input recordings are closed-loop — they don't time-shift.** A
+  leaderboard test prepended 60 idle ticks to a recorded run to fake a
+  "slower" entry; the steering masks then arrived 60 ticks late relative
+  to the kart's actual position and the run never finished. Fix: generate
+  slower runs by re-recording with a handicap (throttle drop after GO),
+  not by editing streams. Same property that makes the verification
+  cheat-proof is what makes splicing impossible.
+- **Test waited on a stale broadcast.** The cup integration test asserted
+  points right after `raceEnded`, but `a.room` still held the pre-race
+  lobby message, so `until(state === 'lobby')` passed instantly with old
+  data. Fix: null the cached message before acting, wait for the *next*
+  broadcast. Lesson for event-driven tests: clear the slot you're about
+  to wait on.
+
 ## 2026-06-11
 
 ### Progress
