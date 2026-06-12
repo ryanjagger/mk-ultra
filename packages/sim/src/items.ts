@@ -27,7 +27,7 @@ import {
 import { sinB, cosB } from './trig.js';
 import { rngNextState, rngValue, rngRange } from './prng.js';
 import { ITEM_NONE, type GameState, type KartState, type ShellState } from './state.js';
-import { BOOST_CAP } from './physics.js';
+import { BOOST_CAP, KART_Z_CLEAR } from './physics.js';
 import { KART_RADIUS, clampWorld } from './track.js';
 import { computePlacements } from './race.js';
 
@@ -272,7 +272,8 @@ export function stepShells(st: GameState): void {
       // a fresh shell can't hit its owner — only after a wall bounce
       if (p === s.owner && s.bounces === 0) continue;
       const kart = st.karts[p]!;
-      if (kart.finishTick >= 0 || kart.spinTicks > 0) continue;
+      // jumping clears ground hazards
+      if (kart.finishTick >= 0 || kart.spinTicks > 0 || kart.z > KART_Z_CLEAR) continue;
       if (len(sub(kart.x, s.x), sub(kart.y, s.y)) >= hitR) continue;
       spinOut(kart);
       s.ttl = 0;
@@ -291,7 +292,8 @@ export function stepOils(st: GameState): void {
     if (OIL_TTL - o.ttl < OIL_ARM_TICKS) continue;
     for (let p = 0; p < st.karts.length; p++) {
       const kart = st.karts[p]!;
-      if (kart.finishTick >= 0 || kart.spinTicks > 0) continue;
+      // any air at all clears an oil slick
+      if (kart.finishTick >= 0 || kart.spinTicks > 0 || kart.z > 0) continue;
       if (len(sub(kart.x, o.x), sub(kart.y, o.y)) >= hitR) continue;
       spinOut(kart);
       o.ttl = 0;

@@ -38,6 +38,7 @@ export {
   BOOST_CAP,
   DRAFT_CHARGE_TICKS,
   DRAFT_BURST_TICKS,
+  KART_Z_CLEAR,
   onDirt,
 } from './physics.js';
 export * from './rollback.js';

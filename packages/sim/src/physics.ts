@@ -59,6 +59,12 @@ const WALL_BOUNCE: Fx = fxConst(1.25); // 1 + restitution
 const WALL_FRICTION: Fx = fxConst(0.96);
 const KART_IMPULSE: Fx = fxConst(0.8); // (1+e)/2 with e=0.6
 
+// ramp jumps: launched karts fly ballistically — no engine, no tire grip,
+// reduced air steering; they clear shells, oil and kart contact below them
+const GRAVITY_Z: Fx = fxConst(0.008); // vz decay per tick airborne
+const RAMP_MIN_SPEED: Fx = fxConst(0.1);
+export const KART_Z_CLEAR: Fx = fxConst(1.0); // height that clears ground hazards
+
 // slipstream: sit in a leader's wake to charge a tow; swing out of the wake
 // once charged and the stored air converts to a slingshot boost burst
 const DRAFT_RANGE: Fx = fxConst(7); // wake length behind the leader
@@ -161,13 +167,13 @@ export function updateDraft(st: GameState): void {
   for (let i = 0; i < karts.length; i++) {
     const k = karts[i]!;
     let inWake = false;
-    if (k.finishTick < 0 && k.spinTicks === 0 && speeds[i]! >= DRAFT_MIN_SPEED) {
+    if (k.finishTick < 0 && k.spinTicks === 0 && k.z === 0 && speeds[i]! >= DRAFT_MIN_SPEED) {
       const fwdX = cosB(k.heading);
       const fwdY = sinB(k.heading);
       for (let j = 0; j < karts.length; j++) {
         if (j === i) continue;
         const lead = karts[j]!;
-        if (lead.finishTick >= 0 || speeds[j]! < DRAFT_MIN_SPEED) continue;
+        if (lead.finishTick >= 0 || lead.z !== 0 || speeds[j]! < DRAFT_MIN_SPEED) continue;
         const dx = sub(lead.x, k.x);
         const dy = sub(lead.y, k.y);
         // leader ahead along our heading, inside the narrow wake corridor,
@@ -206,24 +212,30 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   let fwdY = sinB(kart.heading);
   const vf0 = add(mul(kart.vx, fwdX), mul(kart.vy, fwdY));
 
+  // airborne karts fly ballistically: the drift machine freezes mid-charge,
+  // steering authority drops, engine/brake/grip do nothing until touchdown
+  const grounded = kart.z === 0 && kart.vz === 0;
+
   // --- drift state machine ---
-  const wantDrift = (mask & BTN_DRIFT) !== 0 && vf0 > DRIFT_MIN_SPEED;
-  if (kart.driftDir === 0 && wantDrift && steer !== 0) {
-    kart.driftDir = steer;
-  }
-  if (kart.driftDir !== 0) {
-    if (!wantDrift) {
-      // release: award mini-boost by charge tier
-      if (kart.driftCharge >= DRIFT_TIER2_TICKS) {
-        kart.boostTicks = Math.min(kart.boostTicks + DRIFT_BOOST2, BOOST_CAP);
-      } else if (kart.driftCharge >= DRIFT_TIER1_TICKS) {
-        kart.boostTicks = Math.min(kart.boostTicks + DRIFT_BOOST1, BOOST_CAP);
+  if (grounded) {
+    const wantDrift = (mask & BTN_DRIFT) !== 0 && vf0 > DRIFT_MIN_SPEED;
+    if (kart.driftDir === 0 && wantDrift && steer !== 0) {
+      kart.driftDir = steer;
+    }
+    if (kart.driftDir !== 0) {
+      if (!wantDrift) {
+        // release: award mini-boost by charge tier
+        if (kart.driftCharge >= DRIFT_TIER2_TICKS) {
+          kart.boostTicks = Math.min(kart.boostTicks + DRIFT_BOOST2, BOOST_CAP);
+        } else if (kart.driftCharge >= DRIFT_TIER1_TICKS) {
+          kart.boostTicks = Math.min(kart.boostTicks + DRIFT_BOOST1, BOOST_CAP);
+        }
+        kart.driftDir = 0;
+        kart.driftCharge = 0;
+      } else {
+        const into = steer === kart.driftDir ? 2 : 1;
+        kart.driftCharge = Math.min(kart.driftCharge + into, DRIFT_CHARGE_CAP);
       }
-      kart.driftDir = 0;
-      kart.driftCharge = 0;
-    } else {
-      const into = steer === kart.driftDir ? 2 : 1;
-      kart.driftCharge = Math.min(kart.driftCharge + into, DRIFT_CHARGE_CAP);
     }
   }
 
@@ -239,6 +251,7 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   const turn = mul(steerEff, speedFactor); // fx, |.| <= ~1.85
   let deltaBrads = (turn * TURN_RATE_BRADS) >> 16;
   if (vf0 < 0) deltaBrads = -deltaBrads; // reversing steers mirrored
+  if (!grounded) deltaBrads = deltaBrads >> 2; // quarter authority in the air
   kart.heading = (kart.heading + deltaBrads) & 0xffff;
 
   fwdX = cosB(kart.heading);
@@ -249,63 +262,100 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   // surface probe on the pre-move position, only on tracks that need it
   // (classic flat tracks skip all of this, keeping their v1 hashes intact)
   const hills = st.track.hasHills;
-  let offRoad = false;
-  if ((!boosting && st.track.hasDirt) || hills) {
-    probeSurface(st.track, kart.x, kart.y);
-    offRoad = !boosting && st.track.hasDirt && probeDist > probeHalfW;
-    if (hills) slopeGradient(st.track, probeSeg);
-  }
-  let accel: Fx = 0;
-  if (boosting) {
-    accel = mul(ACCEL, BOOST_ACCEL_MULT);
-  } else if ((mask & BTN_BRAKE) !== 0) {
-    accel = vf0 > MOVE_EPS ? -BRAKE_DECEL | 0 : -REVERSE_ACCEL | 0;
-  } else if ((mask & BTN_ACCEL) !== 0) {
-    accel = ACCEL;
-  }
-  // charged slipstream: the leader's wake tows us along
-  const towing = kart.draftTicks >= DRAFT_CHARGE_TICKS;
-  if (towing && !boosting && (mask & BTN_ACCEL) !== 0) {
-    accel = add(accel, DRAFT_ACCEL);
-  }
-  kart.vx = add(kart.vx, mul(fwdX, accel));
-  kart.vy = add(kart.vy, mul(fwdY, accel));
-  if (hills) {
-    // gravity pulls along -∇h; the grip stage bleeds the lateral part
-    kart.vx = sub(kart.vx, mul(GRAVITY, gradX));
-    kart.vy = sub(kart.vy, mul(GRAVITY, gradY));
-  }
+  if (grounded) {
+    let offRoad = false;
+    if ((!boosting && st.track.hasDirt) || hills) {
+      probeSurface(st.track, kart.x, kart.y);
+      offRoad = !boosting && st.track.hasDirt && probeDist > probeHalfW;
+      if (hills) slopeGradient(st.track, probeSeg);
+    }
+    let accel: Fx = 0;
+    if (boosting) {
+      accel = mul(ACCEL, BOOST_ACCEL_MULT);
+    } else if ((mask & BTN_BRAKE) !== 0) {
+      accel = vf0 > MOVE_EPS ? -BRAKE_DECEL | 0 : -REVERSE_ACCEL | 0;
+    } else if ((mask & BTN_ACCEL) !== 0) {
+      accel = ACCEL;
+    }
+    // charged slipstream: the leader's wake tows us along
+    const towing = kart.draftTicks >= DRAFT_CHARGE_TICKS;
+    if (towing && !boosting && (mask & BTN_ACCEL) !== 0) {
+      accel = add(accel, DRAFT_ACCEL);
+    }
+    kart.vx = add(kart.vx, mul(fwdX, accel));
+    kart.vy = add(kart.vy, mul(fwdY, accel));
+    if (hills) {
+      // gravity pulls along -∇h; the grip stage bleeds the lateral part
+      kart.vx = sub(kart.vx, mul(GRAVITY, gradX));
+      kart.vy = sub(kart.vy, mul(GRAVITY, gradY));
+    }
 
-  // --- grip: split velocity into forward + lateral, decay each ---
-  let vf = add(mul(kart.vx, fwdX), mul(kart.vy, fwdY));
-  const latX = sub(kart.vx, mul(fwdX, vf));
-  const latY = sub(kart.vy, mul(fwdY, vf));
-  const grip = kart.driftDir !== 0 ? LAT_GRIP_DRIFT : offRoad ? LAT_GRIP_DIRT : LAT_GRIP;
+    // --- grip: split velocity into forward + lateral, decay each ---
+    let vf = add(mul(kart.vx, fwdX), mul(kart.vy, fwdY));
+    const latX = sub(kart.vx, mul(fwdX, vf));
+    const latY = sub(kart.vy, mul(fwdY, vf));
+    const grip = kart.driftDir !== 0 ? LAT_GRIP_DRIFT : offRoad ? LAT_GRIP_DIRT : LAT_GRIP;
 
-  vf = mul(vf, ROLL_RESIST);
-  if (spinning) vf = mul(vf, SPIN_DRAG);
-  if (offRoad) {
-    vf = mul(vf, DIRT_DRAG);
-    if (vf > DIRT_CAP) vf = max(DIRT_CAP, sub(vf, DIRT_BLEED));
-  }
-  let cap = boosting ? mul(MAX_SPEED, BOOST_SPEED_MULT) : MAX_SPEED;
-  if (hills && !boosting) {
-    // climbing lowers the speed cap, descending raises it (downhill rush)
-    const sFwd = add(mul(gradX, fwdX), mul(gradY, fwdY));
-    cap = mul(MAX_SPEED, clamp(sub(FX_ONE, mul(SLOPE_CAP_GAIN, sFwd)), SLOPE_CAP_MIN, SLOPE_CAP_MAX));
-  }
-  if (towing && !boosting) cap = max(cap, mul(MAX_SPEED, DRAFT_CAP_MULT));
-  if (vf > cap) vf = max(cap, sub(vf, SPEED_BLEED)); // bleed down smoothly post-boost
-  if (vf < -REVERSE_MAX) vf = -REVERSE_MAX | 0;
+    vf = mul(vf, ROLL_RESIST);
+    if (spinning) vf = mul(vf, SPIN_DRAG);
+    if (offRoad) {
+      vf = mul(vf, DIRT_DRAG);
+      if (vf > DIRT_CAP) vf = max(DIRT_CAP, sub(vf, DIRT_BLEED));
+    }
+    let cap = boosting ? mul(MAX_SPEED, BOOST_SPEED_MULT) : MAX_SPEED;
+    if (hills && !boosting) {
+      // climbing lowers the speed cap, descending raises it (downhill rush)
+      const sFwd = add(mul(gradX, fwdX), mul(gradY, fwdY));
+      cap = mul(MAX_SPEED, clamp(sub(FX_ONE, mul(SLOPE_CAP_GAIN, sFwd)), SLOPE_CAP_MIN, SLOPE_CAP_MAX));
+    }
+    if (towing && !boosting) cap = max(cap, mul(MAX_SPEED, DRAFT_CAP_MULT));
+    if (vf > cap) vf = max(cap, sub(vf, SPEED_BLEED)); // bleed down smoothly post-boost
+    if (vf < -REVERSE_MAX) vf = -REVERSE_MAX | 0;
 
-  kart.vx = add(mul(fwdX, vf), mul(latX, grip));
-  kart.vy = add(mul(fwdY, vf), mul(latY, grip));
+    kart.vx = add(mul(fwdX, vf), mul(latX, grip));
+    kart.vy = add(mul(fwdY, vf), mul(latY, grip));
+  }
 
   // --- integrate ---
   kart.x = clampWorld(add(kart.x, kart.vx));
   kart.y = clampWorld(add(kart.y, kart.vy));
+  if (!grounded) {
+    kart.vz = sub(kart.vz, GRAVITY_Z);
+    kart.z = add(kart.z, kart.vz);
+    if (kart.z <= 0) {
+      kart.z = 0;
+      kart.vz = 0;
+    }
+  }
 
   if (kart.boostTicks > 0) kart.boostTicks -= 1;
+}
+
+/**
+ * Ramp launch pass: grounded karts crossing a ramp at pace take off. The
+ * launch scales with planar speed — crawling hops, flat-out flies.
+ */
+export function stepRamps(st: GameState): void {
+  const ramps = st.track.ramps;
+  if (ramps.length === 0) return;
+  for (const kart of st.karts) {
+    if (kart.finishTick >= 0 || kart.z !== 0 || kart.vz !== 0) continue;
+    const speed = len(kart.vx, kart.vy);
+    if (speed < RAMP_MIN_SPEED) continue;
+    for (const r of ramps) {
+      const rx = sub(kart.x, r.cx);
+      const ry = sub(kart.y, r.cy);
+      const along = wideDot(rx, ry, r.dx, r.dy);
+      const lat = wideCross(r.dx, r.dy, rx, ry);
+      if (
+        (along < 0 ? -along : along) <= r.halfLen * 65536 &&
+        (lat < 0 ? -lat : lat) <= r.halfWid * 65536
+      ) {
+        kart.vz = mul(r.vz, clamp(div(speed, MAX_SPEED), fxConst(0.45), fxConst(1.3)));
+        break;
+      }
+    }
+  }
 }
 
 /** Kart-vs-kart: positional separation + impulse. Fixed pair order (i<j). */
@@ -316,6 +366,9 @@ export function collideKarts(st: GameState): void {
     for (let j = i + 1; j < karts.length; j++) {
       const a = karts[i]!;
       const b = karts[j]!;
+      // a kart flying clear overhead passes, no contact
+      const dz = sub(a.z, b.z);
+      if ((dz < 0 ? -dz : dz) > KART_Z_CLEAR) continue;
       const dx = sub(b.x, a.x);
       const dy = sub(b.y, a.y);
       const d = len(dx, dy);

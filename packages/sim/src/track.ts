@@ -69,6 +69,8 @@ export interface TrackDefPad {
   halfLen?: number;
   /** half-width across the track, units (default 1.1) */
   halfWid?: number;
+  /** ramps only: launch vz in units/tick (default 0.18) */
+  power?: number;
 }
 
 export interface TrackDef {
@@ -78,6 +80,8 @@ export interface TrackDef {
   checkpointVerts: readonly number[];
   itemVerts: readonly number[];
   boostPads: readonly TrackDefPad[];
+  /** jump ramps: driving over one launches the kart (default none) */
+  ramps?: readonly TrackDefPad[];
   /** [x, y, headingBrads] per grid slot, front to back */
   spawns: ReadonlyArray<readonly [number, number, number]>;
   laps?: number;
@@ -124,6 +128,11 @@ export interface BoostPad {
   halfWid: Fx;
 }
 
+export interface RampPad extends BoostPad {
+  /** vertical launch speed, fx units/tick */
+  vz: Fx;
+}
+
 export interface SpawnPose {
   x: Fx;
   y: Fx;
@@ -151,6 +160,7 @@ export interface TrackRuntime {
   gates: Gate[];
   itemSpawns: ItemSpawn[];
   boostPads: BoostPad[];
+  ramps: RampPad[];
   spawns: SpawnPose[];
 }
 
@@ -244,7 +254,7 @@ export function buildTrack(def: TrackDef): TrackRuntime {
     }
   }
 
-  const boostPads: BoostPad[] = def.boostPads.map((p) => {
+  const mkPad = (p: TrackDefPad): BoostPad => {
     const a = inner[p.vert]!;
     const b = outer[p.vert]!;
     const tQ = fxConst(p.t);
@@ -257,7 +267,12 @@ export function buildTrack(def: TrackDef): TrackRuntime {
       halfLen: fxConst(p.halfLen ?? 1.6),
       halfWid: fxConst(p.halfWid ?? 1.1),
     };
-  });
+  };
+  const boostPads: BoostPad[] = def.boostPads.map(mkPad);
+  const ramps: RampPad[] = (def.ramps ?? []).map((p) => ({
+    ...mkPad(p),
+    vz: fxConst(p.power ?? 0.18),
+  }));
 
   const spawns: SpawnPose[] = def.spawns.map(([x, y, heading]) => ({
     x: fxConst(x),
@@ -280,6 +295,7 @@ export function buildTrack(def: TrackDef): TrackRuntime {
     gates,
     itemSpawns,
     boostPads,
+    ramps,
     spawns,
   };
 }

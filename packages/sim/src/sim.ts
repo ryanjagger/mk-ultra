@@ -1,7 +1,8 @@
 /**
  * One sim tick. Everything in here runs in a strict fixed order:
- * karts step (item use then physics, by index) -> kart collisions (i<j)
- * -> wall collisions (by index) -> boost pads (kart-major, pads by index)
+ * rev/draft passes -> karts step (item use then physics, by index)
+ * -> kart collisions (i<j) -> wall collisions (by index)
+ * -> boost pads (kart-major, pads by index) -> ramps (same order)
  * -> checkpoints -> item pickups -> shells -> oil slicks
  * -> phase transition -> tick++.
  *
@@ -9,7 +10,7 @@
  */
 import { sub, wideDot, wideCross } from './fixed.js';
 import { BTN_ACCEL, BTN_ITEM, INPUT_NEUTRAL } from './input.js';
-import { stepKart, collideKarts, collideWalls, updateDraft } from './physics.js';
+import { stepKart, collideKarts, collideWalls, updateDraft, stepRamps } from './physics.js';
 import { stepCheckpoints, stepRacePhase } from './race.js';
 import { stepItems, stepShells, stepOils, useHeldItem } from './items.js';
 import { botMask } from './bots.js';
@@ -42,7 +43,7 @@ function stepBoostPads(st: GameState): void {
   const pads = st.track.boostPads;
   if (pads.length === 0) return;
   for (const kart of st.karts) {
-    if (kart.finishTick >= 0) continue;
+    if (kart.finishTick >= 0 || kart.z !== 0) continue;
     for (const p of pads) {
       const rx = sub(kart.x, p.cx);
       const ry = sub(kart.y, p.cy);
@@ -112,6 +113,7 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
 
   if (st.phase === PHASE_RACING) {
     stepBoostPads(st);
+    stepRamps(st);
     for (let i = 0; i < st.karts.length; i++) {
       stepCheckpoints(st, st.karts[i]!, prevX[i]!, prevY[i]!);
     }

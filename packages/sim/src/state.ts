@@ -43,6 +43,8 @@ export interface KartState {
   y: Fx;
   vx: Fx;
   vy: Fx;
+  z: Fx; // height above the road surface; 0 = grounded
+  vz: Fx; // vertical speed while airborne (ramp jumps)
   heading: number; // brads, 0..65535
   driftDir: number; // -1 | 0 | 1
   driftCharge: number; // ticks held
@@ -94,7 +96,7 @@ export interface GameState {
   oils: OilState[]; // fixed length MAX_OILS
 }
 
-const KART_INTS = 16;
+const KART_INTS = 18;
 const GLOBAL_INTS = 4;
 const SHELL_INTS = 8;
 const OIL_INTS = 4;
@@ -121,6 +123,8 @@ export function createGameState(cfg: RaceConfig): GameState {
       y: s.y,
       vx: 0,
       vy: 0,
+      z: 0,
+      vz: 0,
       heading: s.heading,
       driftDir: 0,
       driftCharge: 0,
@@ -170,6 +174,8 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = k.y;
     out[i++] = k.vx;
     out[i++] = k.vy;
+    out[i++] = k.z;
+    out[i++] = k.vz;
     out[i++] = k.heading;
     out[i++] = k.driftDir;
     out[i++] = k.driftCharge;
@@ -213,6 +219,8 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     k.y = arr[i++]!;
     k.vx = arr[i++]!;
     k.vy = arr[i++]!;
+    k.z = arr[i++]!;
+    k.vz = arr[i++]!;
     k.heading = arr[i++]!;
     k.driftDir = arr[i++]!;
     k.driftCharge = arr[i++]!;

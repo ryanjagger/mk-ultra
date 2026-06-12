@@ -98,6 +98,7 @@ export class ReplayController implements RaceLike {
       const v = this.visualKarts[i]!;
       v.x = p.x + (c.x - p.x) * a;
       v.z = p.z + (c.z - p.z) * a;
+      v.jump = p.jump + (c.jump - p.jump) * a;
       v.headingRad = lerpAngle(p.headingRad, c.headingRad, a);
       v.speed = c.speed;
       v.boosting = c.boosting;

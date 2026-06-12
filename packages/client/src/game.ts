@@ -28,6 +28,8 @@ import { botMask } from './autodrive.js';
 export interface KartRender {
   x: number;
   z: number;
+  /** ramp-jump height above the road, world units */
+  jump: number;
   headingRad: number;
   speed: number;
   boosting: boolean;
@@ -72,6 +74,7 @@ export function snapshotKarts(state: GameState, track: TrackRuntime): KartRender
   return state.karts.map((k) => ({
     x: fxToFloat(k.x),
     z: -fxToFloat(k.y), // sim y (north) -> three -z
+    jump: fxToFloat(k.z),
     headingRad: headingToRad(k.heading),
     speed: Math.hypot(fxToFloat(k.vx), fxToFloat(k.vy)),
     boosting: k.boostTicks > 0,
@@ -222,16 +225,19 @@ export class RaceController implements RaceLike {
       const c = this.currKarts[i]!;
       const tx = p.x + (c.x - p.x) * a;
       const tz = p.z + (c.z - p.z) * a;
+      const tj = p.jump + (c.jump - p.jump) * a;
       const th = lerpAngle(p.headingRad, c.headingRad, a);
       const v = this.visualKarts[i]!;
       if (i === this.you) {
         // local kart: exact — zero added latency
         v.x = tx;
         v.z = tz;
+        v.jump = tj;
         v.headingRad = th;
       } else {
         v.x += (tx - v.x) * smooth;
         v.z += (tz - v.z) * smooth;
+        v.jump += (tj - v.jump) * smooth;
         v.headingRad = lerpAngle(v.headingRad, th, smooth);
       }
       v.speed = c.speed;

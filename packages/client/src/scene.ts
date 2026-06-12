@@ -114,6 +114,7 @@ interface KartVisual {
   sparkMat: THREE.MeshBasicMaterial;
   skidAcc: number;
   pitch: number; // smoothed slope tilt (rad)
+  airborne: boolean; // was off the ground last frame (landing detection)
 }
 
 /** Render-only cosmetic colors for one kart (resolved from a PlayerStyle). */
@@ -207,7 +208,7 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   group.add(sparkR);
 
   if (name) group.add(nameSprite(name, look.primary));
-  return { group, flame, sparkL, sparkR, sparkMat, skidAcc: 0, pitch: 0 };
+  return { group, flame, sparkL, sparkR, sparkMat, skidAcc: 0, pitch: 0, airborne: false };
 }
 
 function loopShapePoints(loop: Vec2Fx[]): THREE.Vector2[] {
@@ -928,6 +929,31 @@ export class GameScene {
       this.padMeshes.push(mesh);
     }
 
+    // jump ramps: solid wedges rising along the direction of travel
+    for (const r of track.ramps) {
+      const L = fxToFloat(r.halfLen);
+      const W = fxToFloat(r.halfWid);
+      const wedge = new THREE.Shape();
+      wedge.moveTo(-L, 0);
+      wedge.lineTo(L, 0);
+      wedge.lineTo(L, L * 0.55);
+      wedge.closePath();
+      const geo = new THREE.ExtrudeGeometry(wedge, { depth: W * 2, bevelEnabled: false });
+      geo.translate(0, 0, -W);
+      const mesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshStandardMaterial({ color: th.wallA, roughness: 0.6 }),
+      );
+      const px = fxToFloat(r.cx);
+      const pz = -fxToFloat(r.cy);
+      const yaw = Math.atan2(fxToFloat(r.dy), fxToFloat(r.dx));
+      mesh.position.set(px, this.terrain.heightAt(px, pz) + 0.01, pz);
+      mesh.rotation.order = 'YZX';
+      mesh.rotation.y = yaw;
+      mesh.rotation.z = Math.atan(this.terrain.slopeAlong(px, pz, yaw));
+      g.add(mesh);
+    }
+
     // item pickups: shield badges, point down
     const itemMat = new THREE.MeshStandardMaterial({
       color: '#ffd23f',
@@ -1110,7 +1136,7 @@ export class GameScene {
     if (!v) return;
     v.group.visible = k !== null;
     if (!k) return;
-    v.group.position.set(k.x, this.terrain.heightAt(k.x, k.z), k.z);
+    v.group.position.set(k.x, this.terrain.heightAt(k.x, k.z) + k.jump, k.z);
     v.group.rotation.y = k.headingRad;
     v.group.rotation.z = Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
     v.flame.visible = k.boosting;
@@ -1123,16 +1149,31 @@ export class GameScene {
     karts.forEach((k, i) => {
       const v = this.karts[i];
       if (!v) return;
-      const gy = this.terrain.heightAt(k.x, k.z);
+      const gy = this.terrain.heightAt(k.x, k.z) + k.jump;
       v.group.position.set(k.x, gy, k.z);
       // spin-out: two full visual turns over the spin duration
       const spinYaw =
         k.spinTicks > 0 ? ((SPIN_OUT_TICKS - k.spinTicks) / SPIN_OUT_TICKS) * Math.PI * 4 : 0;
       v.group.rotation.y = k.headingRad + spinYaw;
-      // nose follows the road grade (smoothed: the gradient steps per segment)
-      const targetPitch = Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
+      // nose follows the road grade; airborne karts hold a slight nose-up
+      const targetPitch =
+        k.jump > 0.05 ? 0.12 : Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
       v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 8);
       v.group.rotation.z = v.pitch;
+      // touchdown poof
+      const airNow = k.jump > 0.02;
+      if (v.airborne && !airNow) {
+        const ground = gy - k.jump;
+        for (let n = 0; n < 10; n++) {
+          const a = (n / 10) * Math.PI * 2;
+          this.particles.emit(
+            k.x + Math.cos(a) * 0.5, ground + 0.06, k.z + Math.sin(a) * 0.5,
+            Math.cos(a) * 2.4, 0.9, Math.sin(a) * 2.4,
+            DUST_COLOR, 0.35, ground,
+          );
+        }
+      }
+      v.airborne = airNow;
       v.flame.visible = k.boosting;
       if (k.boosting) {
         const s = 0.85 + Math.random() * 0.5;
