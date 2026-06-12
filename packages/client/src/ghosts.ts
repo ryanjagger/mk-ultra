@@ -9,6 +9,9 @@
  * compresses to a few hundred pairs.
  */
 
+import { encodeRle, decodeRle } from '@mk/shared';
+export { encodeRle, decodeRle };
+
 /** Fixed time-trial seed so every run of a track sees identical item rolls. */
 export const TT_SEED = 0x77575;
 
@@ -21,22 +24,6 @@ export interface GhostRecord {
   finishTick: number;
   /** input stream from tick 0 as [mask, runLength] pairs */
   rle: [number, number][];
-}
-
-export function encodeRle(masks: readonly number[]): [number, number][] {
-  const out: [number, number][] = [];
-  for (const m of masks) {
-    const last = out[out.length - 1];
-    if (last && last[0] === m) last[1]++;
-    else out.push([m, 1]);
-  }
-  return out;
-}
-
-export function decodeRle(rle: readonly (readonly [number, number])[]): number[] {
-  const out: number[] = [];
-  for (const [mask, len] of rle) for (let i = 0; i < len; i++) out.push(mask);
-  return out;
 }
 
 const key = (trackId: string, laps: number): string => `mk-ghost-${trackId}-${laps}`;

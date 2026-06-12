@@ -9,6 +9,7 @@
 import {
   RANDOM_TRACK,
   DEFAULT_STYLE,
+  encodeRle,
   type ClientMsg,
   type ServerMsg,
   type RoomInfo,
@@ -38,14 +39,20 @@ interface Seat {
 
 interface RaceState {
   seed: number;
+  trackId: string;
   startAtMs: number;
   /** highest input frame received per kart (kart index == seat index) */
   lastFrame: number[];
   dropped: boolean[];
+  /** canonical input record per kart, indexed by frame (replay source) */
+  inputLog: number[][];
   /** frame -> per-kart reported hash */
   hashes: Map<number, (number | undefined)[]>;
   desyncAnnounced: boolean;
 }
+
+/** The last finished race of a room, replayable as (config + inputs). */
+type ReplayMsg = Extract<ServerMsg, { t: 'replay' }>;
 
 export interface Room {
   code: string;
@@ -56,6 +63,7 @@ export interface Room {
   state: 'lobby' | 'racing';
   seats: Seat[];
   race: RaceState | null;
+  lastReplay: ReplayMsg | null;
 }
 
 /** Registry id or 'random'; anything else falls back to 'random'. */
@@ -173,6 +181,13 @@ export class GameLobby {
         this.endRace(room);
         return;
       }
+      case 'getReplay': {
+        const room = ctx.room;
+        if (!room) return;
+        if (room.lastReplay) ctx.conn.send(room.lastReplay);
+        else ctx.conn.send({ t: 'error', message: 'No replay available yet' });
+        return;
+      }
     }
   }
 
@@ -199,6 +214,7 @@ export class GameLobby {
       state: 'lobby',
       seats: [{ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true }],
       race: null,
+      lastReplay: null,
     };
     this.rooms.set(room.code, room);
     ctx.room = room;
@@ -273,9 +289,11 @@ export class GameLobby {
       room.track === RANDOM_TRACK ? TRACKS[randomInt(TRACKS.length)]!.def.id : room.track;
     room.race = {
       seed: randomInt(0, 0x7fffffff),
+      trackId,
       startAtMs: Date.now() + 1500,
       lastFrame: new Array<number>(kartCount).fill(-1),
       dropped: new Array<boolean>(kartCount).fill(false),
+      inputLog: Array.from({ length: kartCount }, () => []),
       hashes: new Map(),
       desyncAnnounced: false,
     };
@@ -299,6 +317,7 @@ export class GameLobby {
   }
 
   private endRace(room: Room): void {
+    if (room.race) room.lastReplay = this.buildReplay(room, room.race);
     room.state = 'lobby';
     room.race = null;
     // disconnected racers vacate their seats now
@@ -321,6 +340,7 @@ export class GameLobby {
     // so every peer sees one consistent first-write-wins input stream
     if (frame <= race.lastFrame[k]!) return;
     race.lastFrame[k] = frame;
+    race.inputLog[k]![frame] = mask; // canonical record — the replay source
     const out: ServerMsg = { t: 'input', p: k, f: frame, m: mask };
     for (let i = 0; i < room.seats.length; i++) {
       if (i === k) continue;
@@ -369,6 +389,31 @@ export class GameLobby {
       }
       race.hashes.delete(frame);
     }
+  }
+
+  /** Snapshot the finished race as data. Called before seats are filtered. */
+  private buildReplay(room: Room, race: RaceState): ReplayMsg {
+    const inputs = race.inputLog.map((log) => {
+      // fill holes with the previous mask (matches what clients converged on);
+      // a dropped kart's log just ends — the replay feeds neutral past the end
+      const dense: number[] = new Array<number>(log.length);
+      let last = 0;
+      for (let f = 0; f < log.length; f++) {
+        const m = log[f];
+        if (m !== undefined) last = m;
+        dense[f] = last;
+      }
+      return encodeRle(dense);
+    });
+    return {
+      t: 'replay',
+      seed: race.seed,
+      laps: room.laps,
+      trackId: race.trackId,
+      players: room.seats.map((s) => s.name),
+      styles: room.seats.map((s) => s.style),
+      inputs,
+    };
   }
 
   private broadcastToRace(room: Room, msg: ServerMsg): void {

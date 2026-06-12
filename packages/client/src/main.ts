@@ -20,6 +20,7 @@ import { ClockSync } from './clock.js';
 import { Keyboard } from './keyboard.js';
 import { RaceController, type RaceLike } from './game.js';
 import { TimeTrialController } from './timetrial.js';
+import { ReplayController, type ReplayData } from './replay.js';
 import { GameScene, KART_COLORS, defaultLook, type KartLook } from './scene.js';
 import { AudioEngine } from './audio.js';
 import { getProfile, saveProfile, myStyle } from './profile.js';
@@ -57,6 +58,8 @@ type Screen = 'home' | 'lobby' | 'race' | 'results';
 let screen: Screen = 'home';
 let controller: RaceLike | null = null;
 let ttParams: { trackId: string; laps: number } | null = null;
+/** the finished race's controller, parked while a replay is playing */
+let finishedRace: RaceLike | null = null;
 let lastRoom: Extract<ServerMsg, { t: 'room' }> | null = null;
 let resultsShown = false;
 let stallSince: number | null = null;
@@ -443,6 +446,45 @@ $('btn-timetrial').addEventListener('click', () =>
   startTimeTrial(createTrackSel.value, Number($<HTMLSelectElement>('create-laps').value)),
 );
 
+// ------------------------------------------------------------ replays ----
+
+function startReplay(data: ReplayData): void {
+  finishedRace = controller;
+  const rc = new ReplayController(data);
+  controller = rc;
+  (window as { __mk?: unknown }).__mk = { controller };
+  audio.reset();
+  resetHudState();
+  kartDotColors = data.styles.map((s, i) => liveryColor(s.livery, i));
+  scene.setTrack(getTrack(data.trackId));
+  scene.setupKarts(
+    data.players, // every kart keeps its name tag — there is no "you" here
+    data.styles.map((s, i) => lookOf(s, i)),
+  );
+  $('hud-pos-of').textContent = `/${data.players.length}`;
+  $('hud-best').classList.add('hidden');
+  $('hud-replay').classList.remove('hidden');
+  showScreen('race');
+}
+
+function exitReplay(): void {
+  if (!(controller instanceof ReplayController)) return;
+  $('hud-replay').classList.add('hidden');
+  controller = finishedRace;
+  finishedRace = null;
+  (window as { __mk?: unknown }).__mk = { controller };
+  showScreen('results');
+}
+
+net.on('replay', (msg) => startReplay(msg));
+
+window.addEventListener('keydown', (e) => {
+  if (!(controller instanceof ReplayController)) return;
+  if (e.key === 'Escape') exitReplay();
+  const n = Number(e.key);
+  if (n >= 1 && n <= controller.state.karts.length) controller.focus = n - 1;
+});
+
 net.on('input', (msg) => netRace()?.onRemoteInput(msg.p, msg.f, msg.m));
 net.on('dropped', (msg) => {
   netRace()?.onDropped(msg.p, msg.fromFrame);
@@ -519,6 +561,7 @@ function showResults(): void {
   $('results-xp').classList.toggle('hidden', !!tt);
   $('btn-back-lobby').classList.toggle('hidden', !!tt);
   $('btn-results-leave').classList.toggle('hidden', !!tt);
+  $('btn-replay').classList.toggle('hidden', !!tt);
   $('btn-tt-retry').classList.toggle('hidden', !tt);
   $('btn-tt-home').classList.toggle('hidden', !tt);
   if (tt?.result) {
@@ -540,6 +583,7 @@ function showResults(): void {
   showScreen('results');
 }
 
+$('btn-replay').addEventListener('click', () => net.send({ t: 'getReplay' }));
 $('btn-tt-retry').addEventListener('click', () => {
   if (ttParams) startTimeTrial(ttParams.trackId, ttParams.laps);
 });
@@ -860,7 +904,8 @@ function frame(now: number): void {
     audio.update(controller);
     if (feats && controller instanceof RaceController) feats.track(controller);
     updateHud();
-    if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
+    if (controller instanceof ReplayController && controller.done) exitReplay();
+    else if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
       resultsShown = true;
       window.setTimeout(() => showResults(), 1400);
     }

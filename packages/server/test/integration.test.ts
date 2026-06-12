@@ -9,6 +9,8 @@ import WebSocket from 'ws';
 import { createGameServer, type GameServer } from '../src/server.js';
 import {
   RollbackSession,
+  createGameState,
+  stepSim,
   hashState,
   rngNextState,
   rngValue,
@@ -16,7 +18,13 @@ import {
   isTrackId,
   type RaceConfig,
 } from '@mk/sim';
-import { parseServerMsg, HASH_INTERVAL, type ClientMsg, type ServerMsg } from '@mk/shared';
+import {
+  parseServerMsg,
+  decodeRle,
+  HASH_INTERVAL,
+  type ClientMsg,
+  type ServerMsg,
+} from '@mk/shared';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -47,12 +55,14 @@ type RoomMsg = Extract<ServerMsg, { t: 'room' }>;
 type RaceStartMsg = Extract<ServerMsg, { t: 'raceStart' }>;
 type DesyncMsg = Extract<ServerMsg, { t: 'desync' }>;
 type DroppedMsg = Extract<ServerMsg, { t: 'dropped' }>;
+type ReplayMsg = Extract<ServerMsg, { t: 'replay' }>;
 
 class TestClient {
   ws: WebSocket;
   opened: Promise<void>;
   room: RoomMsg | null = null;
   raceStart: RaceStartMsg | null = null;
+  replay: ReplayMsg | null = null;
   session: RollbackSession | null = null;
   desyncs: DesyncMsg[] = [];
   drops: DroppedMsg[] = [];
@@ -78,6 +88,9 @@ class TestClient {
           break;
         case 'raceStart':
           this.raceStart = msg;
+          break;
+        case 'replay':
+          this.replay = msg;
           break;
         case 'input':
           if (this.session) this.session.addInput(msg.p, msg.f, msg.m);
@@ -273,6 +286,52 @@ describe('server integration (M5)', () => {
     b.session!.applyCorrections();
     expect(hashState(a.session!.state)).toBe(hashState(b.session!.state));
     expect(a.desyncs).toHaveLength(0);
+  });
+
+  it('the last race is replayable: canonical inputs re-simulate bit-exactly', { timeout: 30000 }, async () => {
+    const { a, b } = await setupRace();
+    const FRAMES = 420;
+    const mA = maskStream(0x999);
+    const mB = maskStream(0xaaa);
+    for (
+      let i = 0;
+      i < FRAMES * 6 && (a.session!.frame < FRAMES || b.session!.frame < FRAMES);
+      i++
+    ) {
+      if (a.session!.frame < FRAMES) a.tick(mA(a.session!.frame));
+      if (b.session!.frame < FRAMES) b.tick(mB(b.session!.frame));
+      await sleep(0);
+    }
+    await sleep(100);
+    a.session!.applyCorrections();
+
+    a.send({ t: 'raceEnded' });
+    a.send({ t: 'getReplay' });
+    await until(() => a.replay !== null, 'replay payload');
+    const r = a.replay!;
+    expect(r.seed).toBe(a.raceStart!.seed);
+    expect(r.trackId).toBe(a.raceStart!.trackId);
+    expect(r.players).toEqual(['alice', 'bob']);
+
+    // the canonical record is exactly what each client sent
+    const ins = r.inputs.map((pairs) => decodeRle(pairs));
+    expect(ins).toHaveLength(2);
+    expect(ins[0]!.length).toBe(FRAMES);
+    expect(ins[1]!.length).toBe(FRAMES);
+    for (let f = 0; f < FRAMES; f++) {
+      expect(ins[0]![f]).toBe(mA(f));
+      expect(ins[1]![f]).toBe(mB(f));
+    }
+
+    // re-simulating the replay reproduces the live race bit-exactly
+    const sim = createGameState({
+      seed: r.seed,
+      lapCount: r.laps,
+      playerCount: 2,
+      trackId: r.trackId,
+    });
+    for (let t = 0; t < FRAMES; t++) stepSim(sim, [ins[0]![t]!, ins[1]![t]!]);
+    expect(hashState(sim)).toBe(hashState(a.session!.state));
   });
 
   it('a mid-race disconnect is broadcast and the survivor keeps simulating', { timeout: 30000 }, async () => {

@@ -60,6 +60,7 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('input'), f: frame, m: inputMask }),
   z.object({ t: z.literal('hash'), f: frame, h: hash32 }),
   z.object({ t: z.literal('raceEnded') }),
+  z.object({ t: z.literal('getReplay') }), // last finished race of my room
   z.object({ t: z.literal('ping'), pt: z.number() }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsgSchema>;
@@ -108,6 +109,20 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     styles: z.array(PlayerStyleSchema).min(1).max(4),
   }),
   z.object({ t: z.literal('input'), p: z.number().int().min(0).max(3), f: frame, m: inputMask }),
+  z.object({
+    // the last finished race as data: deterministic sim + inputs = the race
+    t: z.literal('replay'),
+    seed: z.number().int(),
+    laps: z.number().int().min(1).max(MAX_LAPS),
+    trackId: trackChoice,
+    players: z.array(name).min(1).max(4),
+    styles: z.array(PlayerStyleSchema).min(1).max(4),
+    /** per kart: RLE [mask, runLength] pairs from tick 0 */
+    inputs: z
+      .array(z.array(z.tuple([inputMask, z.number().int().min(1).max(MAX_FRAME)])).max(100_000))
+      .min(1)
+      .max(4),
+  }),
   z.object({ t: z.literal('dropped'), p: z.number().int().min(0).max(3), fromFrame: frame }),
   z.object({ t: z.literal('desync'), frame, detail: z.string().max(200) }),
   z.object({ t: z.literal('pong'), pt: z.number(), now: z.number() }),
@@ -130,7 +145,8 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
 
 /** Parse + validate an inbound server->client message; null if invalid. */
 export function parseServerMsg(raw: unknown): ServerMsg | null {
-  if (typeof raw !== 'string' || raw.length > 16384) return null;
+  // generous cap: replay payloads carry a whole race's RLE input streams
+  if (typeof raw !== 'string' || raw.length > 1_048_576) return null;
   let json: unknown;
   try {
     json = JSON.parse(raw);
