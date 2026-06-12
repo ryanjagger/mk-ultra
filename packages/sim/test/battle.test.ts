@@ -88,6 +88,30 @@ describe('battle mode', () => {
     expect(computePlacements(st)).toEqual([0, 1, 3, 2]);
   });
 
+  it('battle bots hunt and the brawl resolves before the time cap', () => {
+    const st = createGameState({
+      seed: 123,
+      lapCount: 3,
+      playerCount: 4,
+      trackId: 'mesa-drop',
+      mode: 'battle',
+      bots: [true, true, true, true],
+    });
+    let spins = 0;
+    const prevSpin = [0, 0, 0, 0];
+    for (let t = 0; t < COUNTDOWN_TICKS + 9000 && st.phase !== PHASE_FINISHED; t++) {
+      stepSim(st, [0, 0, 0, 0]); // bot masks come from state, not the wire
+      st.karts.forEach((k, i) => {
+        if (k.spinTicks > 0 && prevSpin[i] === 0) spins += 1;
+        prevSpin[i] = k.spinTicks;
+      });
+    }
+    expect(st.phase).toBe(PHASE_FINISHED);
+    expect(spins).toBeGreaterThan(3); // an actual fight happened
+    const alive = st.karts.filter((k) => k.finishTick < 0);
+    expect(alive.length).toBeLessThanOrEqual(1); // last kart standing, not timeout
+  });
+
   it('gates do not count laps in battle', () => {
     const st = mkBattle(1);
     const kart = st.karts[0]!;

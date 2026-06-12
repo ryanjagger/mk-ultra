@@ -1016,8 +1016,12 @@ function updateHud(): void {
 const heartbeatWorker = new Worker(
   URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 50);'], { type: 'text/javascript' })),
 );
+let lastFrameAt = performance.now();
 heartbeatWorker.onmessage = () => {
-  if (document.hidden && controller) {
+  // advance whenever RAF has stalled — hidden tabs, but also occluded or
+  // never-painted windows that still report visibilityState 'visible'
+  const rafStalled = performance.now() - lastFrameAt > 250;
+  if (rafStalled && controller) {
     controller.update();
     if (feats && controller instanceof RaceController) feats.track(controller);
     if (controller.state.phase === PHASE_FINISHED && !resultsShown) {
@@ -1031,6 +1035,7 @@ let lastT = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
+  lastFrameAt = performance.now();
   if (controller && screen !== 'home' && screen !== 'lobby') {
     controller.update();
     const karts = controller.renderKarts(dt);
