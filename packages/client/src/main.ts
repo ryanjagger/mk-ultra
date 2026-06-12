@@ -597,7 +597,7 @@ window.addEventListener('keydown', (e) => {
   if (n >= 1 && n <= controller.state.karts.length) controller.focus = n - 1;
 });
 
-net.on('input', (msg) => netRace()?.onRemoteInput(msg.p, msg.f, msg.m));
+net.on('input', (msg) => netRace()?.onRemoteInput(msg.p, msg.f, msg.m, msg.r));
 net.on('dropped', (msg) => {
   netRace()?.onDropped(msg.p, msg.fromFrame);
   const name = controller?.names[msg.p] ?? `player ${msg.p}`;

@@ -71,7 +71,7 @@ class TestClient {
   lie = false;
   private lastInputFrame = -1;
   private nextHashFrame = HASH_INTERVAL;
-  private pendingInputs: { p: number; f: number; m: number }[] = [];
+  private pendingInputs: { p: number; f: number; m: number; r?: number[] }[] = [];
 
   constructor(url: string) {
     this.ws = new WebSocket(url);
@@ -93,8 +93,8 @@ class TestClient {
           this.replay = msg;
           break;
         case 'input':
-          if (this.session) this.session.addInput(msg.p, msg.f, msg.m);
-          else this.pendingInputs.push({ p: msg.p, f: msg.f, m: msg.m });
+          if (this.session) this.applyInput(msg.p, msg.f, msg.m, msg.r);
+          else this.pendingInputs.push({ p: msg.p, f: msg.f, m: msg.m, r: msg.r });
           break;
         case 'dropped':
           this.drops.push(msg);
@@ -126,8 +126,20 @@ class TestClient {
       bots: rs.bots,
     };
     this.session = new RollbackSession(cfg, rs.you);
-    for (const i of this.pendingInputs) this.session.addInput(i.p, i.f, i.m);
+    for (const i of this.pendingInputs) this.applyInput(i.p, i.f, i.m, i.r);
     this.pendingInputs = [];
+  }
+
+  /** Mirror of the real client: head mask, then redundant history (first write wins). */
+  private applyInput(p: number, f: number, m: number, r?: number[]): void {
+    this.session!.addInput(p, f, m);
+    if (r) {
+      for (let i = 0; i < r.length; i++) {
+        const rf = f - 1 - i;
+        if (rf < 0) break;
+        this.session!.addInput(p, rf, r[i]!);
+      }
+    }
   }
 
   /** One client main-loop step: record + send local input, try to advance, report hashes. */
@@ -391,6 +403,25 @@ describe('server integration (M5)', () => {
     });
     for (let t = 0; t < FRAMES; t++) stepSim(sim, [ins[0]![t]!, 0]);
     expect(hashState(sim)).toBe(hashState(a.session!.state));
+  });
+
+  it('redundant masks heal input holes through the relay', { timeout: 30000 }, async () => {
+    const { a, b } = await setupRace();
+    // a's frames 0..5 arrive; 6..11 are never sent as heads; frame 12 carries
+    // them as redundancy — b must still confirm a contiguously through 12
+    const mA = maskStream(0xccc);
+    for (let f = 0; f <= 5; f++) a.send({ t: 'input', f, m: mA(f) });
+    const r = [11, 10, 9, 8, 7, 6].map((f) => mA(f)); // newest first
+    a.send({ t: 'input', f: 12, m: mA(12), r });
+    await until(() => b.session!.contigFrame(0) >= 12, 'b confirms a through frame 12');
+
+    // the healed masks are canonical: the replay record matches what a meant
+    a.send({ t: 'raceEnded' });
+    a.send({ t: 'getReplay' });
+    await until(() => a.replay !== null, 'replay payload');
+    const ins = decodeRle(a.replay!.inputs[0]!);
+    expect(ins).toHaveLength(13);
+    for (let f = 0; f <= 12; f++) expect(ins[f]).toBe(mA(f));
   });
 
   it('a mid-race disconnect is broadcast and the survivor keeps simulating', { timeout: 30000 }, async () => {

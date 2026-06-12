@@ -19,7 +19,7 @@ import {
   type GameState,
   type TrackRuntime,
 } from '@mk/sim';
-import { HASH_INTERVAL } from '@mk/shared';
+import { HASH_INTERVAL, INPUT_REDUNDANCY } from '@mk/shared';
 import type { Net } from './net.js';
 import type { ClockSync } from './clock.js';
 import type { Keyboard } from './keyboard.js';
@@ -94,6 +94,8 @@ export class RaceController implements RaceLike {
   private startAtMs: number;
 
   private lastInputFrame = -1;
+  /** masks already sent, newest first — piggybacked on every input message */
+  private recentMasks: number[] = [];
   private nextHashFrame = HASH_INTERVAL;
   raceEndedSent = false;
   desyncFrame: number | null = null;
@@ -144,9 +146,17 @@ export class RaceController implements RaceLike {
     return this.session.state;
   }
 
-  onRemoteInput(p: number, f: number, m: number): void {
+  onRemoteInput(p: number, f: number, m: number, r?: number[]): void {
     if (p === this.you) return;
     this.session.addInput(p, f, m);
+    if (r) {
+      // redundant history fills any holes (addInput is first-write-wins)
+      for (let i = 0; i < r.length; i++) {
+        const rf = f - 1 - i;
+        if (rf < 0) break;
+        this.session.addInput(p, rf, r[i]!);
+      }
+    }
   }
 
   onDropped(p: number, fromFrame: number): void {
@@ -182,15 +192,11 @@ export class RaceController implements RaceLike {
     let advances = 0;
     while (this.session.frame < target && advances < 30) {
       const f = this.session.frame;
-      if (f > this.lastInputFrame) {
-        const mask = this.bot ? botMask(this.session.state, this.you) : this.keyboard.sample();
-        this.session.addLocalInput(mask);
-        this.net.send({ t: 'input', f, m: mask });
-        this.lastInputFrame = f;
-      }
+      if (f > this.lastInputFrame) this.sendInput(f, this.sampleMask());
       this.prevKarts = this.currKarts;
       if (!this.session.advance()) {
         this.stalled = true;
+        this.sendInputsWhileStalled(target);
         break;
       }
       this.currKarts = snapshotKarts(this.session.state, this.trackRt);
@@ -207,6 +213,37 @@ export class RaceController implements RaceLike {
       this.raceEndedSent = true;
       // deterministic placements ride along for cup scoring (first reporter wins)
       this.net.send({ t: 'raceEnded', placements: computePlacements(this.state) });
+    }
+  }
+
+  private sampleMask(): number {
+    return this.bot ? botMask(this.session.state, this.you) : this.keyboard.sample();
+  }
+
+  /** Commit an input locally and broadcast it, recent history attached. */
+  private sendInput(f: number, mask: number): void {
+    this.session.addInput(this.you, f, mask);
+    if (this.recentMasks.length > 0) {
+      this.net.send({ t: 'input', f, m: mask, r: this.recentMasks.slice() });
+    } else {
+      this.net.send({ t: 'input', f, m: mask });
+    }
+    this.recentMasks.unshift(mask);
+    if (this.recentMasks.length > INPUT_REDUNDANCY) this.recentMasks.pop();
+    this.lastInputFrame = f;
+  }
+
+  /**
+   * The sim can't advance, but our inputs must keep flowing — otherwise every
+   * peer stalls on us ~maxPrediction frames later and one bad link freezes
+   * the whole room (stall contagion). Commit a bounded run of upcoming
+   * frames; bounded because these masks are pledged before their frames
+   * simulate, and a long pledge would replay stale controls after recovery.
+   */
+  private sendInputsWhileStalled(target: number): void {
+    const limit = Math.min(target - 1, this.session.frame + this.session.maxPrediction);
+    while (this.lastInputFrame < limit) {
+      this.sendInput(this.lastInputFrame + 1, this.sampleMask());
     }
   }
 

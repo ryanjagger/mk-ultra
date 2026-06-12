@@ -3,6 +3,7 @@
  * All inbound messages are Zod-validated before touching room logic (NFR-16).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { Socket } from 'node:net';
 import { existsSync, createReadStream, statSync } from 'node:fs';
 import { join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,6 +89,8 @@ export function createGameServer(port: number): Promise<GameServer> {
       socket.destroy();
       return;
     }
+    // 30-byte relay messages at 60Hz must not wait on Nagle batching
+    (socket as Socket).setNoDelay(true);
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 

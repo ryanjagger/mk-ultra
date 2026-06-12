@@ -251,7 +251,7 @@ export class GameLobby {
         this.startRace(ctx);
         return;
       case 'input':
-        this.relayInput(ctx, msg.f, msg.m);
+        this.relayInput(ctx, msg.f, msg.m, msg.r);
         return;
       case 'hash':
         this.recordHash(ctx, msg.f, msg.h);
@@ -510,7 +510,7 @@ export class GameLobby {
     this.broadcastRoom(room);
   }
 
-  private relayInput(ctx: PlayerCtx, frame: number, mask: number): void {
+  private relayInput(ctx: PlayerCtx, frame: number, mask: number, r?: number[]): void {
     const room = ctx.room;
     if (!room || room.state !== 'racing' || !room.race) return;
     const k = this.seatIndexOf(ctx);
@@ -521,7 +521,19 @@ export class GameLobby {
     if (frame <= race.lastFrame[k]!) return;
     race.lastFrame[k] = frame;
     race.inputLog[k]![frame] = mask; // canonical record — the replay source
-    const out: ServerMsg = { t: 'input', p: k, f: frame, m: mask };
+    if (r) {
+      // redundant masks heal holes in the canonical record too (first write wins)
+      const log = race.inputLog[k]!;
+      for (let i = 0; i < r.length; i++) {
+        const rf = frame - 1 - i;
+        if (rf < 0) break;
+        if (log[rf] === undefined) log[rf] = r[i]!;
+      }
+    }
+    const out: ServerMsg =
+      r && r.length > 0
+        ? { t: 'input', p: k, f: frame, m: mask, r }
+        : { t: 'input', p: k, f: frame, m: mask };
     for (let i = 0; i < room.seats.length; i++) {
       if (i === k) continue;
       room.seats[i]!.ctx?.conn.send(out);

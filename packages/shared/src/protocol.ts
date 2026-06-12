@@ -12,11 +12,20 @@ export const MAX_FRAME = 10_000_000;
 export const ROOM_CODE_LEN = 4;
 /** Confirmed-state hash exchange cadence, in frames (NFR-17). */
 export const HASH_INTERVAL = 30;
+/**
+ * Max redundant input masks piggybacked on an input message (`r[i]` = the
+ * mask for frame `f-1-i`). Receivers fill holes first-write-wins, so a
+ * message that never made it (or arrived while the receiver had no session)
+ * heals on the next one instead of freezing the sender's confirmed frontier.
+ */
+export const INPUT_REDUNDANCY = 10;
 
 const name = z.string().min(1).max(MAX_NAME_LEN);
 const roomCode = z.string().length(ROOM_CODE_LEN);
 const frame = z.number().int().min(0).max(MAX_FRAME);
 const inputMask = z.number().int().min(0).max(63); // @mk/sim INPUT_MASK_ALL
+/** Redundant masks for the frames before `f`, newest first. */
+const redundant = z.array(inputMask).max(INPUT_REDUNDANCY);
 const hash32 = z.number().int().min(0).max(0xffffffff);
 /**
  * Track id, or 'random'. Shared cannot depend on the sim registry, so this is
@@ -85,7 +94,7 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('addBot') }), // host-only, lobby-only
   z.object({ t: z.literal('removeBot') }), // host-only, lobby-only (removes the last bot)
   z.object({ t: z.literal('startRace') }),
-  z.object({ t: z.literal('input'), f: frame, m: inputMask }),
+  z.object({ t: z.literal('input'), f: frame, m: inputMask, r: redundant.optional() }),
   z.object({ t: z.literal('hash'), f: frame, h: hash32 }),
   z.object({
     t: z.literal('raceEnded'),
@@ -177,7 +186,13 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     styles: z.array(PlayerStyleSchema).min(1).max(4),
     bots: z.array(z.boolean()).min(1).max(4),
   }),
-  z.object({ t: z.literal('input'), p: z.number().int().min(0).max(3), f: frame, m: inputMask }),
+  z.object({
+    t: z.literal('input'),
+    p: z.number().int().min(0).max(3),
+    f: frame,
+    m: inputMask,
+    r: redundant.optional(),
+  }),
   z.object({
     // the last finished race as data: deterministic sim + inputs = the race
     t: z.literal('replay'),
