@@ -51,6 +51,8 @@ const net = new Net();
 const clock = new ClockSync();
 const keyboard = new Keyboard();
 const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
+// debug hook (read-only by convention), alongside the per-race __mk.controller
+(window as { __mkScene?: unknown }).__mkScene = scene;
 scene.setupIdleKarts();
 
 const audio = new AudioEngine();

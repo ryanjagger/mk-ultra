@@ -25,6 +25,7 @@ import {
 } from '@mk/sim';
 import type { KartRender } from './game.js';
 import { Terrain } from './terrain.js';
+import { sponsorFor, titleSponsor, type Sponsor } from './sponsors.js';
 
 export const KART_COLORS = ['#ff4757', '#2e86ff', '#ffd23f', '#3fd06b'];
 
@@ -111,6 +112,25 @@ function cloudTexture(): THREE.Texture {
   return tex;
 }
 
+// shared soft-edged dot for every Points system (square points read as confetti
+// even when they aren't); lazy so module import never touches the DOM early
+let softDot: THREE.Texture | null = null;
+function softDotTexture(): THREE.Texture {
+  if (softDot) return softDot;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  softDot = new THREE.CanvasTexture(c);
+  return softDot;
+}
+
 function kerbTexture(): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = 64;
@@ -156,21 +176,58 @@ function grainTexture(): THREE.Texture {
   return tex;
 }
 
-function billboardTexture(text: string, accent: string): THREE.Texture {
+/** Procedural sponsor lockup: accent disc with the initial + the wordmark. */
+function sponsorTexture(s: Sponsor, w = 512, h = 96): THREE.Texture {
   const c = document.createElement('canvas');
-  c.width = 320;
-  c.height = 128;
+  c.width = w;
+  c.height = h;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#161a26';
-  g.fillRect(0, 0, 320, 128);
-  g.strokeStyle = accent;
-  g.lineWidth = 6;
-  g.strokeRect(6, 6, 308, 116);
-  g.font = 'italic 900 44px system-ui, sans-serif';
+  g.fillStyle = s.color;
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = s.accent;
+  g.lineWidth = Math.max(3, h * 0.05);
+  g.strokeRect(4, 4, w - 8, h - 8);
+  g.font = `italic 900 ${Math.round(h * 0.42)}px system-ui, sans-serif`;
+  g.textBaseline = 'middle';
+  const r = h * 0.27;
+  const tw = g.measureText(s.name).width;
+  const x0 = (w - (tw + r * 2.7)) / 2;
+  g.fillStyle = s.accent;
+  g.beginPath();
+  g.arc(x0 + r, h / 2, r, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = s.color;
+  g.font = `900 ${Math.round(r * 1.15)}px system-ui, sans-serif`;
+  g.textAlign = 'center';
+  g.fillText(s.name[0]!, x0 + r, h / 2 + 1);
+  g.fillStyle = s.accent;
+  g.font = `italic 900 ${Math.round(h * 0.42)}px system-ui, sans-serif`;
+  g.textAlign = 'left';
+  // tall surfaces fit the tagline under the wordmark
+  if (s.tagline && h >= 140) {
+    g.fillText(s.name, x0 + r * 2.7, h * 0.42);
+    g.font = `600 ${Math.round(h * 0.16)}px system-ui, sans-serif`;
+    g.fillStyle = '#cfd4de';
+    g.fillText(s.tagline, x0 + r * 2.7, h * 0.72);
+  } else {
+    g.fillText(s.name, x0 + r * 2.7, h / 2 + 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Faded paint-on-asphalt wordmark (transparent background). */
+function roadLogoTexture(name: string): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 160;
+  const g = c.getContext('2d')!;
+  g.font = 'italic 900 64px system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillStyle = accent;
-  g.fillText(text, 160, 66);
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  g.fillText(name, 256, 80);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
@@ -216,12 +273,18 @@ function nameSprite(name: string, color: string): THREE.Sprite {
 
 interface KartVisual {
   group: THREE.Group;
+  bodyTilt: THREE.Group; // chassis-only lean/squash (wheels stay grounded)
+  wheels: { mesh: THREE.Mesh; front: boolean }[];
   flame: THREE.Mesh;
   sparkL: THREE.Mesh;
   sparkR: THREE.Mesh;
   sparkMat: THREE.MeshBasicMaterial;
   skidAcc: number;
   pitch: number; // smoothed slope tilt (rad)
+  lean: number; // smoothed body roll (rad)
+  steer: number; // smoothed front-wheel yaw (rad)
+  squash: number; // landing suspension squash (1 = rest)
+  prevHeading: number;
   airborne: boolean; // was off the ground last frame (landing detection)
   balloons: THREE.Mesh[]; // battle-mode lives, shown while balloons remain
   prevBalloons: number;
@@ -247,17 +310,25 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   const accentMat = new THREE.MeshStandardMaterial({ color: look.accent, roughness: 0.5, metalness: 0.15 });
   const dark = new THREE.MeshStandardMaterial({ color: '#1c1f26', roughness: 0.9 });
 
+  // chassis subgroup: lean/squash animate this, wheels stay on the road
+  const bodyTilt = new THREE.Group();
+  group.add(bodyTilt);
+
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.42, 0.92), mat);
   body.position.y = 0.42;
-  group.add(body);
+  bodyTilt.add(body);
   const nose = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.55), accentMat);
   nose.position.set(0.95, 0.38, 0);
-  group.add(nose);
+  bodyTilt.add(nose);
   const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.95), accentMat);
   spoiler.position.set(-0.78, 0.72, 0);
-  group.add(spoiler);
+  bodyTilt.add(spoiler);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.24, 14);
+  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.24, 9);
+  wheelGeo.rotateX(Math.PI / 2); // axle along local z; spin = rotation.z
+  const hubGeo = new THREE.BoxGeometry(0.5, 0.09, 0.26);
+  const hubMat = new THREE.MeshStandardMaterial({ color: '#5a6170', roughness: 0.6 });
+  const wheels: { mesh: THREE.Mesh; front: boolean }[] = [];
   for (const [wx, wz] of [
     [0.55, 0.52],
     [0.55, -0.52],
@@ -265,24 +336,26 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
     [-0.55, -0.52],
   ] as const) {
     const w = new THREE.Mesh(wheelGeo, dark);
-    w.rotation.x = Math.PI / 2;
+    w.rotation.order = 'YZX'; // steer yaw first, then roll about the axle
     w.position.set(wx, 0.28, wz);
+    w.add(new THREE.Mesh(hubGeo, hubMat)); // spoke bar makes the spin visible
     group.add(w);
+    wheels.push({ mesh: w, front: wx > 0 });
   }
 
   const headMat = new THREE.MeshStandardMaterial({ color: '#f2c8a0', roughness: 0.8 });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.5), dark);
   torso.position.set(-0.15, 0.78, 0);
-  group.add(torso);
+  bodyTilt.add(torso);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), headMat);
   head.position.set(-0.15, 1.12, 0);
-  group.add(head);
+  bodyTilt.add(head);
   const helmet = new THREE.Mesh(
     new THREE.SphereGeometry(0.25, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.6),
     mat,
   );
   helmet.position.set(-0.15, 1.14, 0);
-  group.add(helmet);
+  bodyTilt.add(helmet);
 
   // real shadows from the sun replace the old blob-shadow disc
   group.traverse((o) => {
@@ -301,7 +374,7 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   flame.rotation.z = Math.PI / 2; // apex points -x (backwards)
   flame.position.set(-1.05, 0.45, 0);
   flame.visible = false;
-  group.add(flame);
+  bodyTilt.add(flame);
 
   const sparkMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#9bd6ff').multiplyScalar(2.2),
@@ -335,12 +408,18 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   if (name) group.add(nameSprite(name, look.primary));
   return {
     group,
+    bodyTilt,
+    wheels,
     flame,
     sparkL,
     sparkR,
     sparkMat,
     skidAcc: 0,
     pitch: 0,
+    lean: 0,
+    steer: 0,
+    squash: 1,
+    prevHeading: 0,
     airborne: false,
     balloons,
     prevBalloons: 3,
@@ -381,6 +460,7 @@ class ParticlePool {
     geo.setAttribute('color', this.colAttr);
     const mat = new THREE.PointsMaterial({
       size,
+      map: softDotTexture(),
       vertexColors: true,
       blending: THREE.AdditiveBlending,
       transparent: true,
@@ -539,7 +619,8 @@ class WeatherField {
           : new THREE.Color('#7df0d8').multiplyScalar(1.7); // HDR fireflies bloom
     const mat = new THREE.PointsMaterial({
       color,
-      size: kind === 'snow' ? 0.14 : kind === 'dust' ? 0.1 : 0.17,
+      map: softDotTexture(),
+      size: kind === 'snow' ? 0.18 : kind === 'dust' ? 0.13 : 0.21,
       transparent: true,
       opacity: kind === 'snow' ? 0.9 : 0.75,
       blending: kind === 'snow' ? THREE.NormalBlending : THREE.AdditiveBlending,
@@ -667,7 +748,7 @@ export class GameScene {
   private bloom: UnrealBloomPass;
   private speedLines: ShaderPass;
   private speedLineLevel = 0;
-  private particles = new ParticlePool(512, 0.17);
+  private particles = new ParticlePool(512, 0.24);
   private skids: SkidPool;
   private weather: WeatherField | null = null;
   private cloudSpin: THREE.Group | null = null;
@@ -709,6 +790,8 @@ export class GameScene {
   /** look-behind camera while true (set per frame from held key) */
   rearview = false;
   private prevRearview = false;
+  private camRoll = 0;
+  private camDip = 0;
   private t = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -1185,6 +1268,18 @@ export class GameScene {
     banner.rotation.y = gateYaw;
     g.add(banner);
 
+    // title sponsor strip hanging under the checkered banner
+    const titleStrip = new THREE.Mesh(
+      new THREE.PlaneGeometry(Math.min(gateLen * 0.62, 9), 0.7),
+      new THREE.MeshBasicMaterial({
+        map: sponsorTexture(titleSponsor(), 512, 56),
+        side: THREE.DoubleSide,
+      }),
+    );
+    titleStrip.position.copy(gateMid).setY(gateH + 4.0);
+    titleStrip.rotation.y = gateYaw;
+    g.add(titleStrip);
+
     // boost pads: chevron planes pointing along the direction of travel
     const chevron = chevronTexture();
     for (const p of track.boostPads) {
@@ -1459,20 +1554,24 @@ export class GameScene {
         stand.add(fan);
       }
     }
+    // fascia: the sponsor banner across the grandstand's front edge
+    const fascia = new THREE.Mesh(
+      new THREE.PlaneGeometry(13.6, 0.55),
+      new THREE.MeshBasicMaterial({ map: sponsorTexture(sponsorFor(track.def.id, 7), 512, 56) }),
+    );
+    fascia.position.set(0, 0.5, 0.77);
+    stand.add(fascia);
     stand.position.copy(standPos);
     stand.lookAt(cS.x, standPos.y, cS.z);
     g.add(stand);
 
-    // billboards on the two longest straights
-    const ads = ['TURBO+', 'GHOST COLA', 'DRIFT KING', 'SHELL & CO', 'MK ULTRA', 'RAMP IT'];
+    // sponsor billboards on the two longest straights
     const segLen = (j: number) => {
       const a = track.centerline[j]!;
       const b = track.centerline[(j + 1) % n]!;
       return Math.hypot(fxToFloat(b.x) - fxToFloat(a.x), fxToFloat(b.y) - fxToFloat(a.y));
     };
     const order = Array.from({ length: n }, (_, j) => j).sort((a, b) => segLen(b) - segLen(a));
-    let hash = 0;
-    for (const ch of track.def.id) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
     order.slice(0, 2).forEach((j, bi) => {
       const mid = worldOf(track.centerline[j]!).lerp(worldOf(track.centerline[(j + 1) % n]!), 0.5);
       const fm = worldOf(track.fenceOuter[j]!).lerp(worldOf(track.fenceOuter[(j + 1) % n]!), 0.5);
@@ -1486,10 +1585,11 @@ export class GameScene {
         post.position.set(px, 2.2, 0);
         board.add(post);
       }
-      const ad = Math.abs(hash + bi * 7 + j) % ads.length;
       const panel = new THREE.Mesh(
         new THREE.PlaneGeometry(7.4, 3),
-        new THREE.MeshBasicMaterial({ map: billboardTexture(ads[ad]!, th.wallA) }),
+        new THREE.MeshBasicMaterial({
+          map: sponsorTexture(sponsorFor(track.def.id, 10 + bi), 512, 208),
+        }),
       );
       panel.position.set(0, 4.6, 0);
       board.add(panel);
@@ -1497,6 +1597,58 @@ export class GameScene {
       board.lookAt(mid.x, pos.y, mid.z);
       g.add(board);
     });
+
+    // barrier ads: tiled sponsor panels hugging the outer fence along the
+    // longest segments — the classic racing-barrier look
+    order.slice(0, 6).forEach((j, k) => {
+      const a = worldOf(track.fenceOuter[j]!);
+      const b = worldOf(track.fenceOuter[(j + 1) % n]!);
+      const segL = a.distanceTo(b);
+      if (segL < 12) return;
+      const sponsor = sponsorFor(track.def.id, k);
+      const panelW = Math.min(segL * 0.62, 14);
+      const mid = a.clone().lerp(b, 0.5);
+      const cMid = worldOf(track.centerline[j]!).lerp(worldOf(track.centerline[(j + 1) % n]!), 0.5);
+      const inwards = cMid.clone().sub(mid).setY(0).normalize();
+      const tex = sponsorTexture(sponsor, 512, 80);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.repeat.x = Math.max(1, Math.round(panelW / 4.5));
+      const panel = new THREE.Mesh(
+        new THREE.PlaneGeometry(panelW, 0.58),
+        new THREE.MeshBasicMaterial({ map: tex }),
+      );
+      panel.name = 'sponsor-barrier';
+      panel.position.copy(mid).addScaledVector(inwards, 0.32);
+      panel.position.y = this.terrain.heightAt(mid.x, mid.z) + 0.44;
+      panel.lookAt(panel.position.clone().add(inwards));
+      g.add(panel);
+    });
+
+    // painted sponsor on the asphalt just past the starting grid
+    const gate0 = track.gates[0]!;
+    const fwd = new THREE.Vector3(fxToFloat(gate0.nx), 0, -fxToFloat(gate0.ny));
+    const paintPos = new THREE.Vector3(fxToFloat(gate0.cx), 0, -fxToFloat(gate0.cy)).addScaledVector(
+      fwd,
+      9,
+    );
+    const paintGeo = new THREE.PlaneGeometry(7.5, 2.4);
+    paintGeo.rotateX(-Math.PI / 2);
+    const paint = new THREE.Mesh(
+      paintGeo,
+      new THREE.MeshBasicMaterial({
+        map: roadLogoTexture(sponsorFor(track.def.id, 8).name),
+        transparent: true,
+        opacity: 0.4,
+        depthWrite: false,
+      }),
+    );
+    paint.position.set(
+      paintPos.x,
+      this.terrain.heightAt(paintPos.x, paintPos.z) + 0.019,
+      paintPos.z,
+    );
+    paint.rotation.y = Math.atan2(-fwd.z, fwd.x);
+    g.add(paint);
 
     // night tracks get floodlight gantries (the glow is bloom, not real light)
     if (th.night) {
@@ -1698,6 +1850,32 @@ export class GameScene {
         k.jump > 0.05 ? 0.12 : Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
       v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 8);
       v.group.rotation.z = v.pitch;
+
+      // wheels roll with speed; the front pair steers with the yaw rate
+      let dYaw = k.headingRad - v.prevHeading;
+      if (dYaw > Math.PI) dYaw -= Math.PI * 2;
+      if (dYaw < -Math.PI) dYaw += Math.PI * 2;
+      v.prevHeading = k.headingRad;
+      const yawRate = dYaw / Math.max(dt, 1 / 240);
+      const roll = (k.speed * 60 * dt) / 0.28; // radians of wheel this frame
+      const steerTarget = THREE.MathUtils.clamp(yawRate / 3.4, -0.42, 0.42);
+      v.steer += (steerTarget - v.steer) * Math.min(1, dt * 12);
+      for (const w of v.wheels) {
+        w.mesh.rotation.z -= roll;
+        if (w.front) w.mesh.rotation.y = v.steer;
+      }
+
+      // chassis rolls outward through corners (more in a drift), and the
+      // suspension squashes on touchdown
+      const leanTarget = THREE.MathUtils.clamp(
+        yawRate * k.speed * 1.0 + (k.driftDir !== 0 ? k.driftDir * 0.05 : 0),
+        -0.14,
+        0.14,
+      );
+      v.lean += (leanTarget - v.lean) * Math.min(1, dt * 7);
+      v.bodyTilt.rotation.x = v.lean;
+      v.squash += (1 - v.squash) * Math.min(1, dt * 9);
+      v.bodyTilt.scale.set(1 + (1 - v.squash) * 0.5, v.squash, 1 + (1 - v.squash) * 0.5);
       // battle balloons: show what's left, burst on every pop
       if (state.cfg.mode === 'battle') {
         const bal = state.karts[i]?.balloons ?? 0;
@@ -1722,7 +1900,7 @@ export class GameScene {
         }
       }
       v.wasFinished = k.finished;
-      // touchdown poof
+      // touchdown: dust poof, suspension squash, a kick for the local camera
       const airNow = k.jump > 0.02;
       if (v.airborne && !airNow) {
         const ground = gy - k.jump;
@@ -1734,6 +1912,8 @@ export class GameScene {
             DUST_COLOR, 0.35, ground,
           );
         }
+        v.squash = 0.68;
+        if (i === localIdx) this.shake = Math.max(this.shake, 0.32);
       }
       v.airborne = airNow;
       v.flame.visible = k.boosting;
@@ -1830,8 +2010,10 @@ export class GameScene {
       const facing = this.rearview ? -1 : 1;
       const dir = new THREE.Vector3(Math.cos(me.headingRad), 0, -Math.sin(me.headingRad));
       const desired = new THREE.Vector3(me.x, 0, me.z).addScaledVector(dir, -7.6 * facing);
-      // ride the terrain: sample under the camera so crests drop away ahead
-      desired.y = this.terrain.heightAt(desired.x, desired.z) + 4.1;
+      // ride the terrain: sample under the camera so crests drop away ahead;
+      // boosting pulls the camera lower for a sense of speed
+      this.camDip += ((me.boosting ? 0.6 : 0) - this.camDip) * Math.min(1, dt * 4);
+      desired.y = this.terrain.heightAt(desired.x, desired.z) + 4.1 - this.camDip;
       const meY = this.terrain.heightAt(me.x, me.z);
       const look = new THREE.Vector3(me.x, meY + 1.1, me.z).addScaledVector(dir, 4.0 * facing);
       if (!this.camInit) {
@@ -1842,6 +2024,9 @@ export class GameScene {
         this.camera.position.lerp(desired, f);
       }
       this.camera.lookAt(look);
+      // bank gently into drifts
+      this.camRoll += ((me.driftDir !== 0 ? me.driftDir * 0.045 : 0) - this.camRoll) * Math.min(1, dt * 5);
+      this.camera.rotateZ(this.camRoll);
       const targetFov = me.boosting ? 76 : 64;
       if (Math.abs(this.camera.fov - targetFov) > 0.1) {
         this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 6);

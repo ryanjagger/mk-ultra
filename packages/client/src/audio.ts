@@ -56,6 +56,11 @@ export class AudioEngine {
   private windFilter: BiquadFilterNode | null = null;
   private windGain: GainNode | null = null;
   private squealGain: GainNode | null = null;
+  private crowdGain: GainNode | null = null;
+  private whooshGain: GainNode | null = null;
+  private whooshBp: BiquadFilterNode | null = null;
+  private whooshPrevDist = -1;
+  private whooshPrevT = 0;
 
   // previous-frame state for transition detection
   private prevKarts: KartPrev[] = [];
@@ -226,6 +231,32 @@ export class AudioEngine {
     this.squealGain.gain.value = 0;
     squeal.connect(bp).connect(this.squealGain).connect(this.master!);
     squeal.start();
+
+    // crowd murmur, swelling near the grandstand at the start line
+    const crowd = ctx.createBufferSource();
+    crowd.buffer = this.noise!;
+    crowd.loop = true;
+    const crowdBp = ctx.createBiquadFilter();
+    crowdBp.type = 'bandpass';
+    crowdBp.frequency.value = 740;
+    crowdBp.Q.value = 0.7;
+    this.crowdGain = ctx.createGain();
+    this.crowdGain.gain.value = 0;
+    crowd.connect(crowdBp).connect(this.crowdGain).connect(this.master!);
+    crowd.start();
+
+    // shell flyby whoosh, doppler-bent by the closing speed
+    const whoosh = ctx.createBufferSource();
+    whoosh.buffer = this.noise!;
+    whoosh.loop = true;
+    this.whooshBp = ctx.createBiquadFilter();
+    this.whooshBp.type = 'bandpass';
+    this.whooshBp.frequency.value = 620;
+    this.whooshBp.Q.value = 1.4;
+    this.whooshGain = ctx.createGain();
+    this.whooshGain.gain.value = 0;
+    whoosh.connect(this.whooshBp).connect(this.whooshGain).connect(this.master!);
+    whoosh.start();
   }
 
   /** Short synthesized blip. */
@@ -300,12 +331,53 @@ export class AudioEngine {
     const you = controller.you;
 
     this.updateEngineVoice(st, you);
+    this.updateProximityVoices(st, you);
     this.detectCountdown(st);
     this.detectKartEvents(st, you);
     this.detectShellEvents(st, you);
     this.detectOilEvents(st, you);
 
     this.prevPhase = st.phase;
+  }
+
+  /** Distance-driven continuous voices: grandstand crowd, shell flybys. */
+  private updateProximityVoices(st: GameState, you: number): void {
+    if (!this.crowdGain || !this.whooshGain || !this.whooshBp) return;
+    const t = this.ctx!.currentTime;
+    const me = st.karts[you]!;
+    const mx = fxToFloat(me.x);
+    const my = fxToFloat(me.y);
+
+    // the crowd swells as you pass the stand and goes wild at the flag
+    const gate = st.track.gates[0]!;
+    const dGate = Math.hypot(fxToFloat(gate.cx) - mx, fxToFloat(gate.cy) - my);
+    const near = Math.max(0, 1 - dGate / 55);
+    const base = st.phase === PHASE_FINISHED ? 0.5 : near * near;
+    const wobble = 0.78 + 0.14 * Math.sin(t * 5.1) + 0.08 * Math.sin(t * 13.7);
+    this.crowdGain.gain.setTargetAtTime(0.4 * base * wobble, t, 0.08);
+
+    // nearest live shell drives the whoosh
+    let best = Infinity;
+    for (const s of st.shells) {
+      if (s.ttl <= 0) continue;
+      const d = Math.hypot(fxToFloat(s.x) - mx, fxToFloat(s.y) - my);
+      if (d < best) best = d;
+    }
+    if (best === Infinity || st.phase !== PHASE_RACING) {
+      this.whooshGain.gain.setTargetAtTime(0, t, 0.06);
+      this.whooshPrevDist = -1;
+      return;
+    }
+    let doppler = 1;
+    if (this.whooshPrevDist >= 0 && t > this.whooshPrevT) {
+      const closing = (this.whooshPrevDist - best) / (t - this.whooshPrevT); // units/s
+      doppler = Math.min(1.6, Math.max(0.7, 1 + closing / 60));
+    }
+    this.whooshPrevDist = best;
+    this.whooshPrevT = t;
+    const loud = Math.max(0, 1 - best / 30);
+    this.whooshGain.gain.setTargetAtTime(0.5 * loud * loud, t, 0.04);
+    this.whooshBp.frequency.setTargetAtTime(620 * doppler, t, 0.05);
   }
 
   /** Reset transition trackers at race start so old state can't misfire. */
@@ -316,6 +388,7 @@ export class AudioEngine {
     this.prevOilTtl = [];
     this.prevCountdownN = -1;
     this.prevPhase = -1;
+    this.whooshPrevDist = -1;
   }
 
   private updateEngineVoice(st: GameState, you: number): void {
