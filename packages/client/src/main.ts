@@ -50,6 +50,7 @@ const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
 scene.setupIdleKarts();
 
 const audio = new AudioEngine();
+(window as { __mkAudio?: unknown }).__mkAudio = audio; // debug/E2E hook
 window.addEventListener('pointerdown', () => audio.unlock());
 window.addEventListener('keydown', () => audio.unlock());
 document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
@@ -74,6 +75,11 @@ const screens = {
 const hud = $('hud');
 const overlayDisconnect = $('overlay-disconnect');
 
+// soundtrack: races alternate between both tracks, menus play Mayhem
+const MENU_MUSIC = '/music/Nean_Kart_Mayhem.mp3';
+const RACE_MUSIC = ['/music/Neon_Grand_Prix.mp3', '/music/Nean_Kart_Mayhem.mp3'];
+let raceMusicIdx = 0;
+
 function showScreen(next: Screen): void {
   screen = next;
   screens.home.classList.toggle('hidden', next !== 'home');
@@ -81,6 +87,9 @@ function showScreen(next: Screen): void {
   screens.results.classList.toggle('hidden', next !== 'results');
   hud.classList.toggle('hidden', next !== 'race' && next !== 'results');
   keyboard.captureGameKeys = next === 'race';
+  audio.setMusic(
+    next === 'race' ? RACE_MUSIC[raceMusicIdx++ % RACE_MUSIC.length]! : MENU_MUSIC,
+  );
   if (next === 'home') {
     net.send({ t: 'listRooms' });
   }

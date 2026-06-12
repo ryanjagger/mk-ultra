@@ -23,6 +23,8 @@ import {
 import type { RaceLike } from './game.js';
 
 const MASTER_GAIN = 0.32;
+/** music level on its own bus under the master (so mute/ducking apply) */
+const MUSIC_LEVEL = 0.38;
 /** one-shots from far-away karts/shells fade with distance (world units) */
 const HEAR_RANGE = 70;
 
@@ -66,6 +68,14 @@ export class AudioEngine {
   muted = localStorage.getItem('mk-muted') === '1';
   private hidden = false;
 
+  // soundtrack: decoded once per url, looped on its own bus, crossfaded
+  private musicBuffers = new Map<string, AudioBuffer>();
+  private musicLoading = new Set<string>();
+  private musicSrc: AudioBufferSourceNode | null = null;
+  private musicGain: GainNode | null = null;
+  private musicPlaying: string | null = null;
+  private musicWanted: string | null = null;
+
   /** Create/resume the context. Call from a user-gesture handler. */
   unlock(): void {
     if (!this.ctx) {
@@ -77,8 +87,72 @@ export class AudioEngine {
       this.master.connect(this.ctx.destination);
       this.noise = makeNoiseBuffer(this.ctx);
       this.buildEngineVoice();
+      this.syncMusic(); // a track requested before unlock starts now
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  /**
+   * Request a soundtrack url (null = silence). Safe before unlock — the
+   * track starts on the first user gesture. Re-requesting the playing track
+   * is a no-op, so music carries seamlessly across screen changes.
+   */
+  setMusic(url: string | null): void {
+    this.musicWanted = url;
+    this.syncMusic();
+  }
+
+  private syncMusic(): void {
+    if (!this.ctx || !this.master) return;
+    const want = this.musicWanted;
+    if (want === this.musicPlaying) return;
+    if (want === null) {
+      this.stopMusic();
+      return;
+    }
+    const buf = this.musicBuffers.get(want);
+    if (!buf) {
+      void this.loadMusic(want); // syncMusic re-runs once decoded
+      return;
+    }
+    this.stopMusic(); // old track fades under the new one — a crossfade
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const g = this.ctx.createGain();
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(MUSIC_LEVEL, this.ctx.currentTime, 0.4);
+    src.connect(g).connect(this.master);
+    src.start();
+    this.musicSrc = src;
+    this.musicGain = g;
+    this.musicPlaying = want;
+  }
+
+  private stopMusic(): void {
+    if (this.musicSrc && this.musicGain && this.ctx) {
+      const src = this.musicSrc;
+      this.musicGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.25);
+      src.stop(this.ctx.currentTime + 1.5);
+    }
+    this.musicSrc = null;
+    this.musicGain = null;
+    this.musicPlaying = null;
+  }
+
+  private async loadMusic(url: string): Promise<void> {
+    if (this.musicLoading.has(url) || !this.ctx) return;
+    this.musicLoading.add(url);
+    try {
+      const res = await fetch(url);
+      const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      this.musicBuffers.set(url, buf);
+    } catch {
+      // missing or undecodable track — stay silent rather than break audio
+    } finally {
+      this.musicLoading.delete(url);
+    }
+    this.syncMusic();
   }
 
   toggleMute(): boolean {
