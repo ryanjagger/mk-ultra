@@ -79,7 +79,9 @@ export class RollbackSession {
       this.inputs.push([]);
       this.used.push([]);
       this.contig.push(-1);
-      this.droppedFrom.push(Number.MAX_SAFE_INTEGER);
+      // CPU seats never send inputs: neutral-confirmed from frame 0 (stepSim
+      // computes their real masks from state) so they never stall prediction
+      this.droppedFrom.push(cfg.bots?.[p] ? 0 : Number.MAX_SAFE_INTEGER);
     }
     this.snapInts = snapshotInts(cfg);
     this.snapshots = [];

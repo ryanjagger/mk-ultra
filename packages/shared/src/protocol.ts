@@ -56,6 +56,8 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('leaveRoom') }),
   z.object({ t: z.literal('setReady'), ready: z.boolean() }),
   z.object({ t: z.literal('setTrack'), track: trackChoice }), // host-only, lobby-only
+  z.object({ t: z.literal('addBot') }), // host-only, lobby-only
+  z.object({ t: z.literal('removeBot') }), // host-only, lobby-only (removes the last bot)
   z.object({ t: z.literal('startRace') }),
   z.object({ t: z.literal('input'), f: frame, m: inputMask }),
   z.object({ t: z.literal('hash'), f: frame, h: hash32 }),
@@ -72,6 +74,7 @@ export const RoomPlayerSchema = z.object({
   ready: z.boolean(),
   host: z.boolean(),
   connected: z.boolean(),
+  bot: z.boolean(),
   style: PlayerStyleSchema,
 });
 export type RoomPlayer = z.infer<typeof RoomPlayerSchema>;
@@ -107,6 +110,7 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     you: z.number().int().min(0).max(3),
     players: z.array(name).min(1).max(4),
     styles: z.array(PlayerStyleSchema).min(1).max(4),
+    bots: z.array(z.boolean()).min(1).max(4),
   }),
   z.object({ t: z.literal('input'), p: z.number().int().min(0).max(3), f: frame, m: inputMask }),
   z.object({
@@ -117,6 +121,7 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     trackId: trackChoice,
     players: z.array(name).min(1).max(4),
     styles: z.array(PlayerStyleSchema).min(1).max(4),
+    bots: z.array(z.boolean()).min(1).max(4),
     /** per kart: RLE [mask, runLength] pairs from tick 0 */
     inputs: z
       .array(z.array(z.tuple([inputMask, z.number().int().min(1).max(MAX_FRAME)])).max(100_000))

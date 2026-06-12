@@ -31,6 +31,11 @@ export interface RaceConfig {
   playerCount: number;
   /** registry track id; undefined = the classic track (back-compat) */
   trackId?: string;
+  /**
+   * Per-seat CPU flags. Bot masks are computed inside stepSim as a pure
+   * function of state — identical on every client, never on the wire.
+   */
+  bots?: readonly boolean[];
 }
 
 export interface KartState {

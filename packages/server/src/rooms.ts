@@ -35,6 +35,7 @@ interface Seat {
   style: PlayerStyle;
   ready: boolean;
   connected: boolean;
+  bot: boolean;
 }
 
 interface RaceState {
@@ -166,6 +167,45 @@ export class GameLobby {
         this.broadcastRoom(room);
         return;
       }
+      case 'addBot': {
+        const room = ctx.room;
+        if (!room || room.state !== 'lobby') return;
+        if (this.seatIndexOf(ctx) !== 0) {
+          ctx.conn.send({ t: 'error', message: 'Only the host can add CPUs' });
+          return;
+        }
+        if (room.seats.length >= MAX_PLAYERS) {
+          ctx.conn.send({ t: 'error', message: 'Room is full' });
+          return;
+        }
+        const n = room.seats.filter((s) => s.bot).length + 1;
+        room.seats.push({
+          ctx: null,
+          name: `CPU ${n}`,
+          style: DEFAULT_STYLE,
+          ready: true,
+          connected: true,
+          bot: true,
+        });
+        this.broadcastRoom(room);
+        return;
+      }
+      case 'removeBot': {
+        const room = ctx.room;
+        if (!room || room.state !== 'lobby') return;
+        if (this.seatIndexOf(ctx) !== 0) {
+          ctx.conn.send({ t: 'error', message: 'Only the host can remove CPUs' });
+          return;
+        }
+        for (let i = room.seats.length - 1; i >= 0; i--) {
+          if (room.seats[i]!.bot) {
+            room.seats.splice(i, 1);
+            this.broadcastRoom(room);
+            return;
+          }
+        }
+        return;
+      }
       case 'startRace':
         this.startRace(ctx);
         return;
@@ -212,7 +252,7 @@ export class GameLobby {
       laps,
       track,
       state: 'lobby',
-      seats: [{ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true }],
+      seats: [{ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true, bot: false }],
       race: null,
       lastReplay: null,
     };
@@ -230,8 +270,17 @@ export class GameLobby {
       ctx.conn.send({ t: 'error', message: 'Room is full' });
       return;
     }
-    room.seats.push({ ctx, name: ctx.name, style: ctx.style, ready: false, connected: true });
+    room.seats.push({
+      ctx,
+      name: ctx.name,
+      style: ctx.style,
+      ready: false,
+      connected: true,
+      bot: false,
+    });
     ctx.room = room;
+    // humans before bots: the host (seat 0) must always be a human
+    room.seats.sort((a, b) => Number(a.bot) - Number(b.bot));
     this.broadcastRoom(room);
   }
 
@@ -246,10 +295,12 @@ export class GameLobby {
     } else {
       const idx = room.seats.findIndex((s) => s.ctx === ctx);
       if (idx >= 0) room.seats.splice(idx, 1);
-      if (room.seats.length === 0) {
+      if (!room.seats.some((s) => !s.bot)) {
+        // bots don't keep rooms alive
         this.rooms.delete(room.code);
         return;
       }
+      room.seats.sort((a, b) => Number(a.bot) - Number(b.bot)); // host stays human
       this.broadcastRoom(room);
     }
   }
@@ -279,7 +330,7 @@ export class GameLobby {
       return;
     }
     const others = room.seats.slice(1);
-    if (!others.every((s) => s.ready)) {
+    if (!others.every((s) => s.ready || s.bot)) {
       ctx.conn.send({ t: 'error', message: 'Not everyone is ready' });
       return;
     }
@@ -302,6 +353,7 @@ export class GameLobby {
     console.log(
       `[room ${room.code}] race start: ${kartCount} karts, seed ${room.race.seed}, track ${trackId}`,
     );
+    const bots = room.seats.map((s) => s.bot);
     room.seats.forEach((seat, i) => {
       seat.ctx?.conn.send({
         t: 'raceStart',
@@ -312,6 +364,7 @@ export class GameLobby {
         you: i,
         players: names,
         styles,
+        bots,
       });
     });
   }
@@ -320,13 +373,16 @@ export class GameLobby {
     if (room.race) room.lastReplay = this.buildReplay(room, room.race);
     room.state = 'lobby';
     room.race = null;
-    // disconnected racers vacate their seats now
-    room.seats = room.seats.filter((s) => s.connected && s.ctx);
-    if (room.seats.length === 0) {
+    // disconnected racers vacate their seats now; bots stay for the next race
+    room.seats = room.seats.filter((s) => s.bot || (s.connected && s.ctx));
+    if (!room.seats.some((s) => !s.bot)) {
       this.rooms.delete(room.code);
       return;
     }
-    for (const s of room.seats) s.ready = false;
+    room.seats.sort((a, b) => Number(a.bot) - Number(b.bot)); // host stays human
+    for (const s of room.seats) {
+      if (!s.bot) s.ready = false;
+    }
     this.broadcastRoom(room);
   }
 
@@ -376,7 +432,9 @@ export class GameLobby {
       }
       let complete = true;
       for (let k = 0; k < row.length; k++) {
-        if (!race.dropped[k] && row[k] === undefined) complete = false;
+        // bot seats never report hashes — their state is part of every
+        // human client's hash, so cross-checking humans covers them
+        if (!race.dropped[k] && !room.seats[k]?.bot && row[k] === undefined) complete = false;
       }
       if (!complete) continue;
       const reported = row.filter((h): h is number => h !== undefined);
@@ -412,6 +470,7 @@ export class GameLobby {
       trackId: race.trackId,
       players: room.seats.map((s) => s.name),
       styles: room.seats.map((s) => s.style),
+      bots: room.seats.map((s) => s.bot),
       inputs,
     };
   }
@@ -426,6 +485,7 @@ export class GameLobby {
       ready: s.ready,
       host: i === 0,
       connected: s.connected,
+      bot: s.bot,
       style: s.style,
     }));
     room.seats.forEach((seat, i) => {

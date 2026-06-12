@@ -114,6 +114,7 @@ export class RaceController implements RaceLike {
       startAtMs: number;
       you: number;
       names: string[];
+      bots?: boolean[];
     },
     private bot = false,
   ) {
@@ -122,6 +123,7 @@ export class RaceController implements RaceLike {
       lapCount: opts.laps,
       playerCount: opts.names.length,
       trackId: opts.trackId,
+      bots: opts.bots,
     };
     this.session = new RollbackSession(this.cfg, opts.you);
     this.you = opts.you;

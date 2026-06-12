@@ -53,6 +53,7 @@ export class ReplayController implements RaceLike {
       lapCount: data.laps,
       playerCount: data.players.length,
       trackId: data.trackId,
+      bots: data.bots, // CPU karts re-drive themselves; their input logs are empty
     });
     this.inputs = data.inputs.map(decodeRle);
     // safety stop: if the recording ends without the race finishing

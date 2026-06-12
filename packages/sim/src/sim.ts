@@ -12,6 +12,7 @@ import { BTN_ITEM, INPUT_NEUTRAL } from './input.js';
 import { stepKart, collideKarts, collideWalls } from './physics.js';
 import { stepCheckpoints, stepRacePhase } from './race.js';
 import { stepItems, stepShells, stepOils, useHeldItem } from './items.js';
+import { botMask } from './bots.js';
 import {
   type GameState,
   PHASE_COUNTDOWN,
@@ -61,14 +62,21 @@ export function stepSim(st: GameState, inputs: readonly number[]): void {
 
   st.phase = st.tick < COUNTDOWN_TICKS ? PHASE_COUNTDOWN : PHASE_RACING;
 
+  // CPU seats ignore wire inputs: their masks are derived from the pre-tick
+  // state itself, so every client (and rollback re-sim) computes the same race
+  const bots = st.cfg.bots;
+  const masks: number[] = [];
+  for (let i = 0; i < st.karts.length; i++) {
+    masks.push(bots?.[i] ? botMask(st, i) : (inputs[i] ?? INPUT_NEUTRAL));
+  }
+
   const prevX: number[] = [];
   const prevY: number[] = [];
   for (let i = 0; i < st.karts.length; i++) {
     const kart = st.karts[i]!;
     prevX.push(kart.x);
     prevY.push(kart.y);
-    const mask =
-      st.phase === PHASE_RACING && kart.finishTick < 0 ? (inputs[i] ?? INPUT_NEUTRAL) : INPUT_NEUTRAL;
+    const mask = st.phase === PHASE_RACING && kart.finishTick < 0 ? masks[i]! : INPUT_NEUTRAL;
     if ((mask & BTN_ITEM) !== 0 && kart.spinTicks === 0) useHeldItem(st, i);
     stepKart(st, kart, mask);
   }

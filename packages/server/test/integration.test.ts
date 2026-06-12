@@ -123,6 +123,7 @@ class TestClient {
       lapCount: rs.laps,
       playerCount: rs.players.length,
       trackId: rs.trackId,
+      bots: rs.bots,
     };
     this.session = new RollbackSession(cfg, rs.you);
     for (const i of this.pendingInputs) this.session.addInput(i.p, i.f, i.m);
@@ -331,6 +332,64 @@ describe('server integration (M5)', () => {
       trackId: r.trackId,
     });
     for (let t = 0; t < FRAMES; t++) stepSim(sim, [ins[0]![t]!, ins[1]![t]!]);
+    expect(hashState(sim)).toBe(hashState(a.session!.state));
+  });
+
+  it('a CPU seat races deterministically alongside one human', { timeout: 30000 }, async () => {
+    srv = await createGameServer(0);
+    const url = `ws://127.0.0.1:${srv.port}/ws`;
+    const a = new TestClient(url);
+    clients.push(a);
+    await a.opened;
+    a.send({ t: 'createRoom', name: 'alice', isPublic: false, laps: 3 });
+    await until(() => a.room !== null, 'room created');
+    a.send({ t: 'addBot' });
+    await until(() => a.room!.players.length === 2, 'bot seated');
+    expect(a.room!.players[1]).toMatchObject({ name: 'CPU 1', bot: true, ready: true });
+
+    a.send({ t: 'startRace' });
+    await until(() => a.raceStart !== null, 'race start');
+    expect(a.raceStart!.bots).toEqual([false, true]);
+    a.startSession();
+
+    // the bot never sends inputs, yet the session must never stall on it
+    const FRAMES = 600;
+    const mA = maskStream(0xbbb);
+    for (let i = 0; i < FRAMES * 6 && a.session!.frame < FRAMES; i++) {
+      a.tick(mA(a.session!.frame));
+      await sleep(0);
+    }
+    expect(a.session!.frame).toBe(FRAMES);
+    expect(a.desyncs).toHaveLength(0);
+    expect(a.errors).toHaveLength(0);
+    // the CPU kart actually drives (it has moved off its spawn)
+    const fresh = createGameState({
+      seed: a.raceStart!.seed,
+      lapCount: 3,
+      playerCount: 2,
+      trackId: a.raceStart!.trackId,
+      bots: [false, true],
+    });
+    const live = a.session!.state.karts[1]!;
+    expect(live.x !== fresh.karts[1]!.x || live.y !== fresh.karts[1]!.y).toBe(true);
+
+    // the replay carries the bot flags and re-simulates bit-exactly with an
+    // empty input log for the CPU seat
+    a.send({ t: 'raceEnded' });
+    a.send({ t: 'getReplay' });
+    await until(() => a.replay !== null, 'replay payload');
+    const r = a.replay!;
+    expect(r.bots).toEqual([false, true]);
+    const ins = r.inputs.map((pairs) => decodeRle(pairs));
+    expect(ins[1]).toHaveLength(0);
+    const sim = createGameState({
+      seed: r.seed,
+      lapCount: r.laps,
+      playerCount: 2,
+      trackId: r.trackId,
+      bots: r.bots,
+    });
+    for (let t = 0; t < FRAMES; t++) stepSim(sim, [ins[0]![t]!, 0]);
     expect(hashState(sim)).toBe(hashState(a.session!.state));
   });
 

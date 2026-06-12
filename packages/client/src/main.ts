@@ -314,9 +314,12 @@ function renderLobby(): void {
     nm.textContent = p.name + (i === lastRoom!.you ? ' (you)' : '');
     const lvl = document.createElement('span');
     lvl.className = 'lvl';
-    lvl.textContent = `LV ${p.style.level}`;
+    lvl.textContent = p.bot ? 'CPU' : `LV ${p.style.level}`;
     const tag = document.createElement('span');
-    if (p.host) {
+    if (p.bot) {
+      tag.className = 'tag ready';
+      tag.textContent = '🤖 ready';
+    } else if (p.host) {
       tag.className = 'tag host';
       tag.textContent = '★ host';
     } else {
@@ -329,7 +332,10 @@ function renderLobby(): void {
 
   const isHost = lastRoom.you === 0;
   const others = lastRoom.players.filter((_, i) => i !== 0);
-  const allReady = others.every((p) => p.ready);
+  const allReady = others.every((p) => p.ready || p.bot);
+  const hasBots = lastRoom.players.some((p) => p.bot);
+  $('btn-add-bot').classList.toggle('hidden', !isHost || lastRoom.players.length >= 4);
+  $('btn-remove-bot').classList.toggle('hidden', !isHost || !hasBots);
   $('btn-ready').classList.toggle('hidden', isHost);
   $('btn-start').classList.toggle('hidden', !isHost);
   const startBtn = $<HTMLButtonElement>('btn-start');
@@ -354,6 +360,8 @@ $('btn-ready').addEventListener('click', () => {
 lobbyTrackSel.addEventListener('change', () => {
   net.send({ t: 'setTrack', track: lobbyTrackSel.value });
 });
+$('btn-add-bot').addEventListener('click', () => net.send({ t: 'addBot' }));
+$('btn-remove-bot').addEventListener('click', () => net.send({ t: 'removeBot' }));
 $('btn-start').addEventListener('click', () => net.send({ t: 'startRace' }));
 $('btn-leave').addEventListener('click', () => net.send({ t: 'leaveRoom' }));
 $('lobby-code').addEventListener('click', () => {
@@ -389,6 +397,7 @@ net.on('raceStart', (msg) => {
       startAtMs: msg.startAtMs,
       you: msg.you,
       names: msg.players,
+      bots: msg.bots,
     },
     botMode,
   );

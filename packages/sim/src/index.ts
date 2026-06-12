@@ -6,6 +6,7 @@ export * from './track.js';
 export * from './track-defs.js';
 export * from './state.js';
 export { stepSim, PAD_BOOST_TICKS } from './sim.js';
+export { botMask } from './bots.js';
 export { computePlacements } from './race.js';
 export {
   isItemActive,
