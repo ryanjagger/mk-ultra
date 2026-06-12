@@ -52,6 +52,9 @@ const SUNNY_CIRCUIT: TrackDef = {
     wallA: '#e74a4a',
     wallB: '#f3efe6',
     decor: 'trees',
+    sunElevation: 62,
+    sunAzimuth: 40,
+    exposure: 1.2,
   },
 };
 
@@ -106,6 +109,10 @@ const CANYON_SPRINT: TrackDef = {
     wallB: '#e8d7b0',
     decor: 'cacti',
     weather: 'dust',
+    sunElevation: 22,
+    sunAzimuth: 205,
+    sunColor: '#ffd9a0',
+    exposure: 1.18,
   },
 };
 
@@ -206,6 +213,12 @@ const GLACIER_GP: TrackDef = {
     wallB: '#ffffff',
     decor: 'snow',
     weather: 'snow',
+    sunElevation: 28,
+    sunAzimuth: 320,
+    sunColor: '#eaf4ff',
+    hemiIntensity: 1.3,
+    exposure: 1.1,
+    skyTop: '#a8cdf0',
   },
 };
 
@@ -258,6 +271,10 @@ const SUMMIT_PASS: TrackDef = {
     wallA: '#d94f3d',
     wallB: '#f2efe4',
     decor: 'trees',
+    sunElevation: 35,
+    sunAzimuth: 120,
+    sunColor: '#fff0c4',
+    exposure: 1.2,
   },
 };
 
@@ -314,6 +331,15 @@ const MESA_DROP: TrackDef = {
     decor: 'cacti',
     night: true,
     weather: 'dust',
+    sunElevation: 10,
+    sunAzimuth: 250,
+    sunColor: '#ff7e3d',
+    sunIntensity: 1.7,
+    hemiIntensity: 1.2,
+    hemiSky: '#6f5a8e',
+    hemiGround: '#402a1c',
+    exposure: 1.2,
+    skyTop: '#2a1a4d',
   },
 };
 
@@ -362,6 +388,11 @@ const COLOSSEUM: TrackDef = {
     wallB: '#e84a5f',
     decor: 'neon',
     night: true,
+    sunElevation: 70,
+    sunAzimuth: 15,
+    sunColor: '#cfe0ff',
+    sunIntensity: 1.5,
+    exposure: 1.12,
   },
 };
 

@@ -43,6 +43,21 @@ export interface TrackTheme {
   night?: boolean;
   /** ambient particle field, render-only */
   weather?: 'snow' | 'dust' | 'fireflies';
+  // --- lighting personality (all optional; client picks day/night defaults)
+  /** sun angle above the horizon, degrees */
+  sunElevation?: number;
+  /** sun compass direction, degrees (0 = +x, 90 = +y north) */
+  sunAzimuth?: number;
+  sunColor?: string;
+  sunIntensity?: number;
+  hemiIntensity?: number;
+  /** ambient sky/bounce colors (default: day or night presets) */
+  hemiSky?: string;
+  hemiGround?: string;
+  /** tone-mapping exposure (default 1.15) */
+  exposure?: number;
+  /** sky-dome zenith color (default: sky; horizon is always fog) */
+  skyTop?: string;
 }
 
 export interface TrackDefVertex {

@@ -86,6 +86,31 @@ function chevronTexture(): THREE.Texture {
   return tex;
 }
 
+function cloudTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  // overlapping soft blobs read as one cumulus puff
+  const blobs: [number, number, number][] = [
+    [70, 80, 38],
+    [110, 64, 46],
+    [150, 78, 40],
+    [185, 88, 30],
+    [120, 92, 50],
+  ];
+  for (const [x, y, r] of blobs) {
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 128);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function nameSprite(name: string, color: string): THREE.Sprite {
   const c = document.createElement('canvas');
   c.width = 256;
@@ -557,6 +582,7 @@ export class GameScene {
   private particles = new ParticlePool(512, 0.17);
   private skids: SkidPool;
   private weather: WeatherField | null = null;
+  private cloudSpin: THREE.Group | null = null;
   private neonMats: THREE.MeshStandardMaterial[] = [];
   private shake = 0;
   private prevLocalSpin = 0;
@@ -600,6 +626,9 @@ export class GameScene {
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // filmic curve: rich mids, soft highlight rolloff; OutputPass applies it
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
     this.camera = new THREE.PerspectiveCamera(64, 1, 0.1, 900);
 
     // bloom: threshold 1 means only HDR-bright pixels glow (boosted emissives
@@ -700,18 +729,21 @@ export class GameScene {
     this.shards = [];
     this.particles.clear();
     this.skids.clear();
-    this.world = this.buildWorld(track);
-    this.scene.add(this.world);
+    this.cloudSpin = null;
+    // theme + orbit first: the sky dome and sun disc are built from them
     this.applyTheme(track);
     this.computeOrbit(track);
+    this.world = this.buildWorld(track);
+    this.scene.add(this.world);
     this.camInit = false;
   }
 
   private applyTheme(track: TrackRuntime): void {
     const th = track.def.theme;
-    this.scene.background = new THREE.Color(th.sky);
+    this.scene.background = new THREE.Color(th.fog); // dome covers this; fallback only
     this.scene.fog = new THREE.Fog(th.fog, 150, 680);
     this.bloom.strength = th.night ? 1.05 : 0.7;
+    this.renderer.toneMappingExposure = th.exposure ?? 1.15;
     if (this.weather) {
       this.scene.remove(this.weather.points);
       this.weather.dispose();
@@ -721,19 +753,12 @@ export class GameScene {
       this.weather = new WeatherField(th.weather);
       this.scene.add(this.weather.points);
     }
-    if (th.night) {
-      this.sun.intensity = 0.95;
-      this.sun.color.set('#aabfff');
-      this.hemi.intensity = 1.0;
-      this.hemi.color.set('#5a6a9e');
-      this.hemi.groundColor.set('#1a1e36');
-    } else {
-      this.sun.intensity = 1.6;
-      this.sun.color.set('#fff3d6');
-      this.hemi.intensity = 1.05;
-      this.hemi.color.set('#cfe6ff');
-      this.hemi.groundColor.set(th.ground);
-    }
+    // lighting personality: theme overrides on top of day/night defaults
+    this.sun.intensity = th.sunIntensity ?? (th.night ? 0.95 : 1.6);
+    this.sun.color.set(th.sunColor ?? (th.night ? '#aabfff' : '#fff3d6'));
+    this.hemi.intensity = th.hemiIntensity ?? (th.night ? 1.0 : 1.05);
+    this.hemi.color.set(th.hemiSky ?? (th.night ? '#5a6a9e' : '#cfe6ff'));
+    this.hemi.groundColor.set(th.hemiGround ?? (th.night ? '#1a1e36' : th.ground));
   }
 
   private computeOrbit(track: TrackRuntime): void {
@@ -755,9 +780,17 @@ export class GameScene {
     this.orbit.radius = extent * 0.62 + 36;
     this.orbit.height = extent * 0.3 + 18;
 
-    // aim the sun (and its shadow box) at this track
+    // aim the sun (and its shadow box) at this track; the theme picks the
+    // angle — low sun means long dramatic shadows
+    const th = track.def.theme;
+    const el = ((th.sunElevation ?? 55) * Math.PI) / 180;
+    const az = ((th.sunAzimuth ?? 35) * Math.PI) / 180;
     const r = extent * 0.75 + 30;
-    this.sun.position.set(this.orbit.cx + r * 0.5, r * 0.95, this.orbit.cz + r * 0.35);
+    this.sun.position.set(
+      this.orbit.cx + Math.cos(az) * Math.cos(el) * r,
+      Math.max(Math.sin(el), 0.08) * r,
+      this.orbit.cz + Math.sin(az) * Math.cos(el) * r,
+    );
     this.sun.target.position.set(this.orbit.cx, 0, this.orbit.cz);
     const cam = this.sun.shadow.camera;
     cam.left = -r;
@@ -769,9 +802,129 @@ export class GameScene {
     cam.updateProjectionMatrix();
   }
 
+  /** Sky dome + celestials, sized to swallow the whole world (camera far 900). */
+  private buildSky(track: TrackRuntime): THREE.Group {
+    const th = track.def.theme;
+    const sky = new THREE.Group();
+    const cx = this.orbit.cx;
+    const cz = this.orbit.cz;
+    const R = 760;
+
+    // zenith -> horizon gradient; the horizon IS the fog color, so distance
+    // fog and sky meet seamlessly
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(R, 32, 18),
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+        uniforms: {
+          uTop: { value: new THREE.Color(th.skyTop ?? th.sky) },
+          uHorizon: { value: new THREE.Color(th.fog) },
+        },
+        vertexShader: /* glsl */ `
+          varying vec3 vPos;
+          void main() {
+            vPos = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform vec3 uTop;
+          uniform vec3 uHorizon;
+          varying vec3 vPos;
+          void main() {
+            float h = clamp(normalize(vPos).y, 0.0, 1.0);
+            gl_FragColor = vec4(mix(uHorizon, uTop, pow(h, 0.65)), 1.0);
+          }
+        `,
+      }),
+    );
+    dome.position.set(cx, 0, cz);
+    dome.renderOrder = -3;
+    sky.add(dome);
+
+    // the sun — or at night the moon — as an HDR disc that picks up bloom
+    const sunDir = this.sun.position.clone().sub(this.sun.target.position).normalize();
+    const discCol = new THREE.Color(th.sunColor ?? (th.night ? '#dfe8ff' : '#fff6d8'));
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(th.night ? 18 : 26, 24),
+      new THREE.MeshBasicMaterial({
+        color: discCol.multiplyScalar(th.night ? 1.4 : 3),
+        fog: false,
+      }),
+    );
+    disc.position.set(cx + sunDir.x * R * 0.93, sunDir.y * R * 0.93, cz + sunDir.z * R * 0.93);
+    disc.lookAt(cx, 0, cz);
+    disc.renderOrder = -2;
+    sky.add(disc);
+
+    if (th.night) {
+      // starfield on the upper dome (deterministic LCG — same sky every load)
+      const N = 420;
+      const pos = new Float32Array(N * 3);
+      let s = 1234567;
+      const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+      for (let i = 0; i < N; i++) {
+        const a = rnd() * Math.PI * 2;
+        const y = 0.12 + rnd() * 0.85;
+        const rh = Math.sqrt(Math.max(0, 1 - y * y));
+        pos[i * 3] = Math.cos(a) * rh * R * 0.98;
+        pos[i * 3 + 1] = y * R * 0.98;
+        pos[i * 3 + 2] = Math.sin(a) * rh * R * 0.98;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const stars = new THREE.Points(
+        geo,
+        new THREE.PointsMaterial({
+          color: '#cfd8ff',
+          size: 1.7,
+          sizeAttenuation: false,
+          transparent: true,
+          opacity: 0.85,
+          fog: false,
+          depthWrite: false,
+        }),
+      );
+      stars.position.set(cx, 0, cz);
+      stars.renderOrder = -2;
+      sky.add(stars);
+    } else {
+      // cumulus ring, drifting slowly around the dome
+      const tex = cloudTexture();
+      const spin = new THREE.Group();
+      spin.position.set(cx, 0, cz);
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + ((i * 37) % 5) * 0.13;
+        const elv = 0.16 + ((i * 53) % 7) * 0.05;
+        const d = R * 0.9;
+        const y = d * elv;
+        const rh = Math.sqrt(d * d - y * y);
+        const cloud = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthWrite: false,
+            fog: false,
+            opacity: 0.45 + ((i * 29) % 4) * 0.12,
+          }),
+        );
+        cloud.position.set(Math.cos(a) * rh, y, Math.sin(a) * rh);
+        const w = 110 + ((i * 41) % 80);
+        cloud.scale.set(w, w * 0.45, 1);
+        spin.add(cloud);
+      }
+      sky.add(spin);
+      this.cloudSpin = spin;
+    }
+    return sky;
+  }
+
   private buildWorld(track: TrackRuntime): THREE.Group {
     const g = new THREE.Group();
     const th = track.def.theme;
+    g.add(this.buildSky(track));
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(700, 48),
@@ -1288,6 +1441,7 @@ export class GameScene {
     this.particles.update(dt);
     this.skids.update(dt);
     this.pulseNeon();
+    if (this.cloudSpin) this.cloudSpin.rotation.y += dt * 0.004;
 
     this.updateItems(state, dt);
     this.updateShards(dt);
@@ -1464,6 +1618,7 @@ export class GameScene {
     this.particles.update(dt);
     this.skids.update(dt);
     this.pulseNeon();
+    if (this.cloudSpin) this.cloudSpin.rotation.y += dt * 0.004;
     this.weather?.update(dt, this.camera.position.x, this.camera.position.z);
     this.speedLineLevel = 0;
     this.speedLines.enabled = false;
