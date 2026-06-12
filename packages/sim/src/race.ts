@@ -12,6 +12,7 @@ import {
   PHASE_RACING,
   STRAGGLER_TICKS,
   MAX_RACE_TICKS,
+  BATTLE_TICKS,
   COUNTDOWN_TICKS,
 } from './state.js';
 import type { Gate } from './track.js';
@@ -36,6 +37,7 @@ function crossedGate(g: Gate, x0: Fx, y0: Fx, x1: Fx, y1: Fx): boolean {
 
 /** Called per kart per tick with the pre-move position. */
 export function stepCheckpoints(st: GameState, kart: KartState, prevX: Fx, prevY: Fx): void {
+  if (st.cfg.mode === 'battle') return; // no laps in a brawl
   if (kart.finishTick >= 0) return;
   const gate = st.track.gates[kart.nextCp]!;
   if (!crossedGate(gate, prevX, prevY, kart.x, kart.y)) return;
@@ -66,6 +68,20 @@ function distToNextGate(st: GameState, kart: KartState): Fx {
  */
 export function computePlacements(st: GameState): number[] {
   const idx = st.karts.map((_, i) => i);
+  if (st.cfg.mode === 'battle') {
+    // survivors by balloons, then the longest-lived of the eliminated
+    idx.sort((a, b) => {
+      const ka = st.karts[a]!;
+      const kb = st.karts[b]!;
+      const aliveA = ka.finishTick < 0 ? 1 : 0;
+      const aliveB = kb.finishTick < 0 ? 1 : 0;
+      if (aliveA !== aliveB) return aliveB - aliveA;
+      if (ka.balloons !== kb.balloons) return kb.balloons - ka.balloons;
+      if (ka.finishTick !== kb.finishTick) return kb.finishTick - ka.finishTick;
+      return a - b;
+    });
+    return idx;
+  }
   const key = idx.map((i) => {
     const k = st.karts[i]!;
     return {
@@ -92,7 +108,19 @@ export function computePlacements(st: GameState): number[] {
 /** Phase transitions; call once per tick after movement/checkpoints. */
 export function stepRacePhase(st: GameState): void {
   if (st.phase === PHASE_FINISHED) return;
-  if (st.phase === PHASE_RACING) {
+  if (st.phase !== PHASE_RACING) return;
+  if (st.cfg.mode === 'battle') {
+    let alive = 0;
+    for (const k of st.karts) if (k.finishTick < 0) alive += 1;
+    const lastStanding = alive <= 1 && st.karts.length > 1;
+    const timeUp = st.tick > COUNTDOWN_TICKS + BATTLE_TICKS;
+    if (lastStanding || timeUp) {
+      st.phase = PHASE_FINISHED;
+      st.endTick = st.tick;
+    }
+    return;
+  }
+  {
     let allDone = true;
     let firstFinish = -1;
     for (const k of st.karts) {

@@ -114,6 +114,7 @@ export class RaceController implements RaceLike {
       seed: number;
       laps: number;
       trackId: string;
+      mode?: 'race' | 'battle';
       startAtMs: number;
       you: number;
       names: string[];
@@ -126,6 +127,7 @@ export class RaceController implements RaceLike {
       lapCount: opts.laps,
       playerCount: opts.names.length,
       trackId: opts.trackId,
+      mode: opts.mode,
       bots: opts.bots,
     };
     this.session = new RollbackSession(this.cfg, opts.you);

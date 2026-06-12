@@ -24,6 +24,9 @@ export const ITEM_NONE = -1;
 export const STRAGGLER_TICKS = 45 * TICK_RATE;
 /** Absolute cap on race length. */
 export const MAX_RACE_TICKS = 600 * TICK_RATE;
+/** Battle mode: starting balloons and the round time limit. */
+export const BATTLE_BALLOONS = 3;
+export const BATTLE_TICKS = 150 * TICK_RATE;
 
 export interface RaceConfig {
   seed: number;
@@ -31,6 +34,11 @@ export interface RaceConfig {
   playerCount: number;
   /** registry track id; undefined = the classic track (back-compat) */
   trackId?: string;
+  /**
+   * 'battle': no laps — every kart carries balloons, hits pop them, last
+   * kart flying wins. undefined = 'race'.
+   */
+  mode?: 'race' | 'battle';
   /**
    * Per-seat CPU flags. Bot masks are computed inside stepSim as a pure
    * function of state — identical on every client, never on the wire.
@@ -57,6 +65,7 @@ export interface KartState {
   revTicks: number; // accel held during countdown (launch-boost timing)
   draftTicks: number; // consecutive ticks spent in another kart's wake
   itemCooldown: number; // ticks until BTN_ITEM works again (multi-charge items)
+  balloons: number; // battle mode lives; 0 + battle = eliminated
 }
 
 /** Fired shell. Slot is live while ttl > 0; pool length is always MAX_SHELLS. */
@@ -96,7 +105,7 @@ export interface GameState {
   oils: OilState[]; // fixed length MAX_OILS
 }
 
-const KART_INTS = 18;
+const KART_INTS = 19;
 const GLOBAL_INTS = 4;
 const SHELL_INTS = 8;
 const OIL_INTS = 4;
@@ -137,6 +146,7 @@ export function createGameState(cfg: RaceConfig): GameState {
       revTicks: 0,
       draftTicks: 0,
       itemCooldown: 0,
+      balloons: cfg.mode === 'battle' ? BATTLE_BALLOONS : 0,
     });
   }
 
@@ -188,6 +198,7 @@ export function writeSnapshot(st: GameState, out: Int32Array): void {
     out[i++] = k.revTicks;
     out[i++] = k.draftTicks;
     out[i++] = k.itemCooldown;
+    out[i++] = k.balloons;
   }
   for (let j = 0; j < st.items.length; j++) out[i++] = st.items[j]!;
   for (const s of st.shells) {
@@ -233,6 +244,7 @@ export function readSnapshot(st: GameState, arr: Int32Array): void {
     k.revTicks = arr[i++]!;
     k.draftTicks = arr[i++]!;
     k.itemCooldown = arr[i++]!;
+    k.balloons = arr[i++]!;
   }
   for (let j = 0; j < st.items.length; j++) st.items[j] = arr[i++]!;
   for (const s of st.shells) {

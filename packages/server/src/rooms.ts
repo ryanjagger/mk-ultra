@@ -14,6 +14,7 @@ import {
   type ServerMsg,
   type RoomInfo,
   type PlayerStyle,
+  type GameMode,
 } from '@mk/shared';
 import { MAX_PLAYERS, TRACKS, isTrackId } from '@mk/sim';
 import { randomInt } from 'node:crypto';
@@ -71,6 +72,7 @@ export interface Room {
   cupRaces: number;
   /** cup races completed */
   cupRaceIndex: number;
+  mode: GameMode;
 }
 
 /** Cup points by finish position. */
@@ -173,6 +175,17 @@ export class GameLobby {
           return;
         }
         room.track = sanitizeTrack(msg.track);
+        this.broadcastRoom(room);
+        return;
+      }
+      case 'setMode': {
+        const room = ctx.room;
+        if (!room || room.state !== 'lobby') return;
+        if (this.seatIndexOf(ctx) !== 0) {
+          ctx.conn.send({ t: 'error', message: 'Only the host can change the mode' });
+          return;
+        }
+        room.mode = msg.mode;
         this.broadcastRoom(room);
         return;
       }
@@ -290,6 +303,7 @@ export class GameLobby {
       lastReplay: null,
       cupRaces: 0,
       cupRaceIndex: 0,
+      mode: 'race',
     };
     this.rooms.set(room.code, room);
     ctx.room = room;
@@ -377,8 +391,11 @@ export class GameLobby {
     }
     room.state = 'racing';
     const kartCount = room.seats.length;
+    // random pool: battles draw arenas, races draw everything else
+    const pool = TRACKS.filter((t) => !!t.def.arena === (room.mode === 'battle'));
+    const fallback = pool.length > 0 ? pool : TRACKS;
     const trackId =
-      room.track === RANDOM_TRACK ? TRACKS[randomInt(TRACKS.length)]!.def.id : room.track;
+      room.track === RANDOM_TRACK ? fallback[randomInt(fallback.length)]!.def.id : room.track;
     room.race = {
       seed: randomInt(0, 0x7fffffff),
       trackId,
@@ -400,6 +417,7 @@ export class GameLobby {
         t: 'raceStart',
         seed: room.race!.seed,
         laps: room.laps,
+        mode: room.mode,
         trackId,
         startAtMs: room.race!.startAtMs,
         you: i,
@@ -518,6 +536,7 @@ export class GameLobby {
       t: 'replay',
       seed: race.seed,
       laps: room.laps,
+      mode: room.mode,
       trackId: race.trackId,
       players: room.seats.map((s) => s.name),
       styles: room.seats.map((s) => s.style),
@@ -556,6 +575,7 @@ export class GameLobby {
         laps: room.laps,
         track: room.track,
         state: room.state,
+        mode: room.mode,
         you: i,
         players,
         cup,

@@ -25,6 +25,10 @@ const hash32 = z.number().int().min(0).max(0xffffffff);
 const trackChoice = z.string().min(1).max(32);
 export const RANDOM_TRACK = 'random';
 
+/** Room game mode; battle = balloons in an arena. */
+const gameMode = z.enum(['race', 'battle']);
+export type GameMode = z.infer<typeof gameMode>;
+
 export const MAX_LEVEL = 99;
 /**
  * Cosmetic identity a player carries into rooms. Ids are shape-only here
@@ -58,6 +62,7 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('setTrack'), track: trackChoice }), // host-only, lobby-only
   // host-only, lobby-only: 0 = single races, N>=2 = Grand Prix of N races
   z.object({ t: z.literal('setCup'), races: z.number().int().min(0).max(8) }),
+  z.object({ t: z.literal('setMode'), mode: gameMode }), // host-only, lobby-only
   z.object({ t: z.literal('addBot') }), // host-only, lobby-only
   z.object({ t: z.literal('removeBot') }), // host-only, lobby-only (removes the last bot)
   z.object({ t: z.literal('startRace') }),
@@ -107,6 +112,7 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     laps: z.number().int().min(1).max(MAX_LAPS),
     track: trackChoice,
     state: z.enum(['lobby', 'racing']),
+    mode: gameMode.optional(), // absent = race
     you: z.number().int().min(0).max(3),
     players: z.array(RoomPlayerSchema).max(4),
     /** present while a Grand Prix is configured; points align with players */
@@ -124,6 +130,7 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     t: z.literal('raceStart'),
     seed: z.number().int(),
     laps: z.number().int().min(1).max(MAX_LAPS),
+    mode: gameMode.optional(), // absent = race
     trackId: trackChoice, // always a concrete registry id ('random' resolved server-side)
     startAtMs: z.number(),
     you: z.number().int().min(0).max(3),
@@ -137,6 +144,7 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     t: z.literal('replay'),
     seed: z.number().int(),
     laps: z.number().int().min(1).max(MAX_LAPS),
+    mode: gameMode.optional(),
     trackId: trackChoice,
     players: z.array(name).min(1).max(4),
     styles: z.array(PlayerStyleSchema).min(1).max(4),

@@ -74,14 +74,22 @@ export function isItemActive(st: GameState, index: number): boolean {
   return st.tick >= st.items[index]!;
 }
 
-/** Knock a kart into a spin: boost and drift are lost, most speed scrubbed. */
-export function spinOut(kart: KartState): void {
+/**
+ * Knock a kart into a spin: boost and drift are lost, most speed scrubbed.
+ * In battle mode every spin pops a balloon; the last balloon eliminates
+ * (finishTick doubles as the elimination tick — frozen controls, no targeting).
+ */
+export function spinOut(st: GameState, kart: KartState): void {
   kart.spinTicks = SPIN_OUT_TICKS;
   kart.boostTicks = 0;
   kart.driftDir = 0;
   kart.driftCharge = 0;
   kart.vx = mul(kart.vx, SPIN_SPEED_KEEP);
   kart.vy = mul(kart.vy, SPIN_SPEED_KEEP);
+  if (st.cfg.mode === 'battle' && kart.balloons > 0) {
+    kart.balloons -= 1;
+    if (kart.balloons === 0) kart.finishTick = st.tick;
+  }
 }
 
 /** First inactive slot, else the closest-to-expiry one (lowest index wins ties). */
@@ -174,7 +182,7 @@ export function useHeldItem(st: GameState, p: number): void {
       if (i === p) continue;
       const other = st.karts[i]!;
       if (other.finishTick >= 0 || other.spinTicks > 0) continue;
-      spinOut(other);
+      spinOut(st, other);
     }
   } else if (item === ITEM_OIL) {
     const o = st.oils[allocSlot(st.oils.map((x) => x.ttl))]!;
@@ -275,7 +283,7 @@ export function stepShells(st: GameState): void {
       // jumping clears ground hazards
       if (kart.finishTick >= 0 || kart.spinTicks > 0 || kart.z > KART_Z_CLEAR) continue;
       if (len(sub(kart.x, s.x), sub(kart.y, s.y)) >= hitR) continue;
-      spinOut(kart);
+      spinOut(st, kart);
       s.ttl = 0;
       break;
     }
@@ -295,7 +303,7 @@ export function stepOils(st: GameState): void {
       // any air at all clears an oil slick
       if (kart.finishTick >= 0 || kart.spinTicks > 0 || kart.z > 0) continue;
       if (len(sub(kart.x, o.x), sub(kart.y, o.y)) >= hitR) continue;
-      spinOut(kart);
+      spinOut(st, kart);
       o.ttl = 0;
       break;
     }

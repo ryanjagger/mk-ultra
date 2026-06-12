@@ -115,6 +115,8 @@ interface KartVisual {
   skidAcc: number;
   pitch: number; // smoothed slope tilt (rad)
   airborne: boolean; // was off the ground last frame (landing detection)
+  balloons: THREE.Mesh[]; // battle-mode lives, shown while balloons remain
+  prevBalloons: number;
 }
 
 /** Render-only cosmetic colors for one kart (resolved from a PlayerStyle). */
@@ -207,8 +209,33 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   sparkR.visible = false;
   group.add(sparkR);
 
+  // battle balloons bob above the spoiler; hidden outside battle mode
+  const balloons: THREE.Mesh[] = [];
+  const balloonColors = ['#ff4757', '#ffd23f', '#3fd06b'];
+  for (let i = 0; i < 3; i++) {
+    const b = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 10, 8),
+      new THREE.MeshStandardMaterial({ color: balloonColors[i], roughness: 0.4 }),
+    );
+    b.position.set((i - 1) * 0.45, 1.7, -0.35);
+    b.visible = false;
+    group.add(b);
+    balloons.push(b);
+  }
+
   if (name) group.add(nameSprite(name, look.primary));
-  return { group, flame, sparkL, sparkR, sparkMat, skidAcc: 0, pitch: 0, airborne: false };
+  return {
+    group,
+    flame,
+    sparkL,
+    sparkR,
+    sparkMat,
+    skidAcc: 0,
+    pitch: 0,
+    airborne: false,
+    balloons,
+    prevBalloons: 3,
+  };
 }
 
 function loopShapePoints(loop: Vec2Fx[]): THREE.Vector2[] {
@@ -1160,6 +1187,17 @@ export class GameScene {
         k.jump > 0.05 ? 0.12 : Math.atan(this.terrain.slopeAlong(k.x, k.z, k.headingRad));
       v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 8);
       v.group.rotation.z = v.pitch;
+      // battle balloons: show what's left, burst on every pop
+      if (state.cfg.mode === 'battle') {
+        const bal = state.karts[i]?.balloons ?? 0;
+        v.balloons.forEach((m, bi) => {
+          m.visible = bi < bal;
+        });
+        if (bal < v.prevBalloons) {
+          this.spawnBurst(new THREE.Vector3(k.x, gy + 1.7, k.z));
+        }
+        v.prevBalloons = bal;
+      }
       // touchdown poof
       const airNow = k.jump > 0.02;
       if (v.airborne && !airNow) {

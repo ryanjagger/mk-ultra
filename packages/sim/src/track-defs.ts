@@ -317,6 +317,54 @@ const MESA_DROP: TrackDef = {
   },
 };
 
+/**
+ * The Colosseum — battle arena. A fat octagonal ring under the lights:
+ * item boxes everywhere, two ramps for shell-dodging jumps, nowhere to
+ * hide. Races run on it as a plain oval, but it's built for balloons.
+ */
+const COLOSSEUM: TrackDef = {
+  id: 'colosseum',
+  name: 'The Colosseum',
+  arena: true,
+  verts: [
+    { x: 55, y: 0, w: 14 }, // 0
+    { x: 39, y: 39, w: 14 },
+    { x: 0, y: 55, w: 14 },
+    { x: -39, y: 39, w: 14 },
+    { x: -55, y: 0, w: 14 },
+    { x: -39, y: -39, w: 14 },
+    { x: 0, y: -55, w: 14 },
+    { x: 39, y: -39, w: 14 },
+  ],
+  checkpointVerts: [0, 2, 4, 6],
+  itemVerts: [1, 3, 5, 7],
+  boostPads: [
+    { vert: 0, t: 0.5 },
+    { vert: 4, t: 0.5 },
+  ],
+  ramps: [
+    { vert: 2, t: 0.5, halfLen: 1.6, halfWid: 2.4 },
+    { vert: 6, t: 0.5, halfLen: 1.6, halfWid: 2.4 },
+  ],
+  spawns: [
+    [55, -8, 16384],
+    [50, -8, 16384],
+    [60, -8, 16384],
+    [55, -14, 16384],
+  ],
+  theme: {
+    sky: '#101022',
+    fog: '#181830',
+    ground: '#23253c',
+    asphalt: '#3c4254',
+    dirt: '#2a2d44',
+    wallA: '#ffd23f',
+    wallB: '#e84a5f',
+    decor: 'neon',
+    night: true,
+  },
+};
+
 export const TRACK_DEFS: readonly TrackDef[] = [
   SUNNY_CIRCUIT,
   CANYON_SPRINT,
@@ -324,4 +372,5 @@ export const TRACK_DEFS: readonly TrackDef[] = [
   GLACIER_GP,
   SUMMIT_PASS,
   MESA_DROP,
+  COLOSSEUM,
 ];

@@ -321,6 +321,11 @@ function renderLobby(): void {
   if (document.activeElement !== cupSel) {
     cupSel.value = String(cup?.totalRaces ?? 0);
   }
+  const modeSel = $<HTMLSelectElement>('lobby-mode');
+  modeSel.disabled = !isHostNow;
+  if (document.activeElement !== modeSel) {
+    modeSel.value = lastRoom.mode ?? 'race';
+  }
   if (screen === 'lobby') showBackdrop(lastRoom.track);
   const ul = $('lobby-players');
   ul.innerHTML = '';
@@ -399,6 +404,10 @@ lobbyTrackSel.addEventListener('change', () => {
 $<HTMLSelectElement>('lobby-cup').addEventListener('change', (e) => {
   net.send({ t: 'setCup', races: Number((e.target as HTMLSelectElement).value) });
 });
+$<HTMLSelectElement>('lobby-mode').addEventListener('change', (e) => {
+  const v = (e.target as HTMLSelectElement).value;
+  net.send({ t: 'setMode', mode: v === 'battle' ? 'battle' : 'race' });
+});
 $('btn-add-bot').addEventListener('click', () => net.send({ t: 'addBot' }));
 $('btn-remove-bot').addEventListener('click', () => net.send({ t: 'removeBot' }));
 $('btn-start').addEventListener('click', () => net.send({ t: 'startRace' }));
@@ -433,6 +442,7 @@ net.on('raceStart', (msg) => {
       seed: msg.seed,
       laps: msg.laps,
       trackId: msg.trackId,
+      mode: msg.mode,
       startAtMs: msg.startAtMs,
       you: msg.you,
       names: msg.players,
@@ -861,9 +871,12 @@ function updateHud(): void {
   const st = controller.state;
   const me = st.karts[controller.you]!;
 
+  const battle = st.cfg.mode === 'battle';
   const placements = controller.placements();
   $('hud-pos-num').textContent = String(placements.indexOf(controller.you) + 1);
-  $('hud-lap').textContent = `LAP ${Math.min(me.lap, st.cfg.lapCount)}/${st.cfg.lapCount}`;
+  $('hud-lap').textContent = battle
+    ? `🎈${'•'.repeat(me.balloons)}`
+    : `LAP ${Math.min(me.lap, st.cfg.lapCount)}/${st.cfg.lapCount}`;
   $('hud-time').textContent = fmtTime(controller.raceTimeSec());
 
   const kart = controller.renderKarts(0)[controller.you]!;
@@ -909,10 +922,12 @@ function updateHud(): void {
     finalLapUntil = performance.now() + 2300;
   }
   prevLapLocal = me.lap;
-  $('hud-finallap').classList.toggle('hidden', performance.now() >= finalLapUntil);
+  $('hud-finallap').classList.toggle('hidden', battle || performance.now() >= finalLapUntil);
 
   // wrong way: moving away from the next gate for a sustained beat
-  const racing = st.phase !== PHASE_COUNTDOWN && st.phase !== PHASE_FINISHED && me.finishTick < 0;
+  // (meaningless in battle — there is no route)
+  const racing =
+    !battle && st.phase !== PHASE_COUNTDOWN && st.phase !== PHASE_FINISHED && me.finishTick < 0;
   const gate = st.track.gates[me.nextCp]!;
   const vx = fxToFloat(me.vx);
   const vy = fxToFloat(me.vy);

@@ -120,7 +120,7 @@ describe.each(TRACKS.map((t) => [t.def.id, t] as [string, TrackRuntime]))(
       const st = createGameState(cfg);
       expect(st.items.length).toBe(track.itemSpawns.length);
       // globals + karts + boxes + shell pool (8x8) + oil pool (12x4)
-      expect(snapshotInts(cfg)).toBe(4 + 4 * 18 + track.itemSpawns.length + 8 * 8 + 12 * 4);
+      expect(snapshotInts(cfg)).toBe(4 + 4 * 19 + track.itemSpawns.length + 8 * 8 + 12 * 4);
       expect(hashState(st)).toBeGreaterThan(0);
     });
   },

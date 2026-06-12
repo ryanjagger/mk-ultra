@@ -82,6 +82,8 @@ export interface TrackDef {
   boostPads: readonly TrackDefPad[];
   /** jump ramps: driving over one launches the kart (default none) */
   ramps?: readonly TrackDefPad[];
+  /** built for battle mode; excluded from the random race pool */
+  arena?: boolean;
   /** [x, y, headingBrads] per grid slot, front to back */
   spawns: ReadonlyArray<readonly [number, number, number]>;
   laps?: number;
