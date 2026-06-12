@@ -21,7 +21,15 @@ import {
 import { stepSim } from './sim.js';
 import { INPUT_NEUTRAL } from './input.js';
 
-export const DEFAULT_MAX_PREDICTION = 8;
+/**
+ * Prediction window in frames. Steady-state demand is the full input path
+ * (sender half-RTT + relay + receiver half-RTT + batching) in ticks — ~9
+ * frames at 90ms pings — and the sim rides the stall wall whenever demand
+ * exceeds the cap, so the cap needs real headroom over a typical path.
+ * 16 frames (266ms) covers ~150ms one-way paths; corrections that deep are
+ * still cheap to re-simulate and visually absorbed by render smoothing.
+ */
+export const DEFAULT_MAX_PREDICTION = 16;
 /** Snapshot ring length; also bounds how late a confirmed-frame hash can be taken. */
 const SNAPSHOT_RING = 512;
 

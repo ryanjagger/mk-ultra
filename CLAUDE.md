@@ -57,7 +57,7 @@ packages/client  Vite + Three.js. Renderer READS sim state only. RaceController
                  ping-synced server time, sends inputs + confirmed hashes.
 ```
 
-**Netcode model** (`sim/src/rollback.ts`): local input applies the same frame with zero delay; missing remote inputs are predicted by repeating that player's last known input; corrections restore a snapshot and re-simulate. Prediction is capped at 8 frames — beyond that the client stalls. Only inputs cross the wire. Clients hash fully-confirmed frames every 30 frames (`HASH_INTERVAL`) for the server to compare.
+**Netcode model** (`sim/src/rollback.ts`): local input applies the same frame with zero delay; missing remote inputs are predicted by repeating that player's last known input; corrections restore a snapshot and re-simulate. Prediction is capped at 16 frames — beyond that the client stalls (while still broadcasting bounded look-ahead inputs so the stall doesn't cascade to peers). Only inputs cross the wire. Clients hash fully-confirmed frames every 30 frames (`HASH_INTERVAL`) for the server to compare.
 
 **Track system**: tracks are pure data in `sim/src/track-defs.ts` (CCW integer-grid centerline with per-vertex asphalt half-width + dirt margin, checkpoint/item verts, boost pads, render-only theme). `buildTrack()` derives everything in fx ops at module init. Two corridors per track: **asphalt** (`inner`/`outer` — items, pads, start-line rendering) and **fence** (`fenceInner`/`fenceOuter` — walls and checkpoint gates, so dirt can't bypass checkpoints). Dirt slows karts unless boosting; boost pads are stateless. `RaceConfig.trackId` is optional and defaults to the classic track (keeps test fixtures simple).
 

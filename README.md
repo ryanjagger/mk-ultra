@@ -60,7 +60,7 @@ or unfinishable layouts at build time.
 **Topology:** server-relayed inputs (one socket per client, server is the
 single serialization point for input order and the hash cross-checker).
 **Tick rate:** 60Hz fixed timestep, render decoupled & interpolated.
-**Rollback window:** 8 frames (~133ms); beyond that the sim stalls rather
+**Rollback window:** 16 frames (~266ms); beyond that the sim stalls rather
 than mispredict further. Local input is applied the frame it happens
 (no input delay); remote gaps are predicted by repeating the last input
 and corrected by snapshot restore + re-simulation.
@@ -107,7 +107,7 @@ The sim package must obey all of these — enforced mechanically by
   partials stay exact; division uses IEEE `/` on exact integers (exactly
   specified by ES); sqrt is exact integer fix-up; one BigInt ratio
   helper for collision projections.
-- **Tick rate / window:** 60Hz, 8-frame rollback window, zero added input
+- **Tick rate / window:** 60Hz, 16-frame rollback window, zero added input
   delay (the PRD tuning lever of +1-2 frames is left at zero).
 - **Topology:** server-relayed inputs over WebSockets — anti-cheat-friendly
   (central hash check), one socket per client, no STUN/TURN. The relay hop

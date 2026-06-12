@@ -101,6 +101,9 @@ export class RaceController implements RaceLike {
   desyncFrame: number | null = null;
   stalled = false;
 
+  /** wall-clock target of the previous update() — paces catch-up speed */
+  private prevTarget = 0;
+
   private trackRt: TrackRuntime;
   private prevKarts: KartRender[];
   private currKarts: KartRender[];
@@ -188,9 +191,15 @@ export class RaceController implements RaceLike {
       target = this.session.frame + 30;
     }
 
+    // catch up at realtime + 2 frames per call: recovering from a stall is a
+    // brief fast-forward, not a teleport of everything on screen
+    const span = target - this.prevTarget;
+    this.prevTarget = target;
+    const maxAdvances = Math.min(30, Math.max(1, span) + 2);
+
     this.stalled = false;
     let advances = 0;
-    while (this.session.frame < target && advances < 30) {
+    while (this.session.frame < target && advances < maxAdvances) {
       const f = this.session.frame;
       if (f > this.lastInputFrame) this.sendInput(f, this.sampleMask());
       this.prevKarts = this.currKarts;
