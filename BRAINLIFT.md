@@ -52,6 +52,19 @@ padded one.
   and the grandstand fascia, with hash-stable slot assignment per track;
   Gauntlet AI ships as title sponsor. Whole afternoon's sim footprint:
   render-only `TrackTheme` lighting fields, same precedent as `weather`.
+- Evening netcode arc, three commits, all live: a real 4-player session
+  was "very stuttery but playable" → input redundancy + bounded
+  look-ahead inputs while stalled + `TCP_NODELAY` (`3a47548`); a
+  production F3 screenshot then showed lag 9 against the 8-frame cap →
+  prediction window 8→16 and slewed catch-up (`5771876`); finally the
+  diagnostics to stop guessing — a `?lag=&jitter=` per-tab link
+  simulator and a headless bot fleet (`pnpm --filter @mk/server fleet`)
+  that races 2-4 synthetic-link clients through the real relay and
+  prints stalls/rollbacks/lag percentiles (`a271033`). Fleet measured
+  the new ceiling (~250ms worst-pair RTT, lag p95 14-15 of 16) and
+  reproduces the original pathology on demand; issue #1 files the
+  adaptive cap / adaptive input-delay follow-up. Side find: the server
+  dev script had been broken by Node 25 strip-types — moved to tsx.
 
 ### AI interactions that accelerated learning
 
@@ -68,8 +81,24 @@ padded one.
   honest: each one ran the full suite before committing, so the one real
   regression (battle bots) surfaced inside its own feature, not three
   features later.
-
-### Challenges → solutions
+- **One overlay screenshot was the whole diagnosis.** The F3 readout
+  (frame 1555, lag 9, stalls 1721) identified the bug arithmetically:
+  stalls ≈ one per RAF means the sim was pinned to the prediction wall
+  every frame, and lag 9 vs cap 8 says exactly why. No repro, no packet
+  capture — the overlay built on day one paid for itself in one image.
+- **Transport semantics before netcode folklore.** Input redundancy was
+  proposed from GGPO instinct ("heals packet loss") and only while
+  implementing it did the obvious surface: TCP delivers in order, so
+  redundant copies can never arrive before the delayed original on the
+  same stream. Kept (it heals app-level holes), but the honest value
+  re-scope went into the commit message. UDP patterns don't transfer to
+  WebSockets unexamined.
+- **"Can't reproduce" is a tooling gap, not a mystery.** Localhost has
+  no latency, so 4 local tabs can't exhibit a 90ms bug. The fix was to
+  build the missing variable: a FIFO link simulator in the client and a
+  fleet that turns "feels stuttery" into lag percentiles — then prove
+  both directions (180ms RTT: 0 stalls; 600ms: pinned at 17, the
+  production screenshot recreated at will).
 
 - **Battle bots orbited a dead gate.** Battles skip checkpoint advancement,
   so `nextCp` froze at 1 and the greedy gate-chaser circled one point for
@@ -99,6 +128,35 @@ padded one.
   data. Fix: null the cached message before acting, wait for the *next*
   broadcast. Lesson for event-driven tests: clear the slot you're about
   to wait on.
+- **Stalls were contagious by design.** Local inputs were sampled and
+  sent only inside the sim-advance loop, so a client stalled on one slow
+  peer stopped feeding everyone else, who then stalled on *it* ~8 frames
+  later — one bad link froze the room. Fix: while stalled, keep
+  committing a bounded run of upcoming inputs (≤ maxPrediction ahead).
+  The bound matters twice: the masks are pledged before their frames
+  simulate (first-write-wins means they must match what was broadcast),
+  and a long pledge would replay stale controls after recovery.
+- **The prediction window was sized for a LAN nobody plays on.** Budget
+  per peer = sender half-RTT + relay + receiver half-RTT + ~3 frames of
+  batching — ~9 frames at 90ms pings, against a cap of 8: permanently
+  pinned, micro freeze-burst every frame. The fleet showed demand scales
+  with the *worst pair* in the room, not your own ping. Cap to 16, and
+  catch-up slewed to realtime+2 frames per update so recovery is a brief
+  fast-forward instead of a teleport (a flat advance cap would starve
+  the hidden-tab heartbeat path — the slew must scale with elapsed
+  wall-clock span).
+- **Two faithful-simulation traps in the lag tools.** Per-message random
+  delays would reorder messages — simulating UDP on a transport that
+  can't reorder — so the fake links enforce monotonic FIFO deadlines per
+  direction (which also reproduces real head-of-line blocking). And
+  `setTimeout` pumping would be throttled to ≥1s in hidden tabs, so the
+  browser link sim pumps from a Web Worker, same as the sim heartbeat.
+- **Node 25 strip-types is not a TS runner.** It rejects parameter
+  properties (non-erasable syntax) and won't resolve the `.js`-suffixed
+  imports TS convention uses — the fleet failed on both, and the same
+  failure had already silently broken `pnpm --filter @mk/server dev`.
+  Fix: tsx for dev/fleet; the production build was never affected
+  (esbuild bundles).
 
 ## 2026-06-11
 
