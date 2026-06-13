@@ -24,9 +24,11 @@
   --panel-border: rgba(255, 255, 255, 0.08);
   --text: #eef1f7;
   --muted: #8b93a7;
-  --accent: #ffd23f;
-  --accent2: #ff4757;
-  --go: #3fd06b;
+  --accent: #ffd23f;  /* brand + your standing (position/lap) + progression + primary action */
+  --accent2: #ff4757; /* danger: errors, desync, wrong-way */
+  --go: #3fd06b;      /* go / ready / success */
+  --drift: #5ee1ff;   /* drift charging (mid tier) */
+  --boost: #ff9b2f;   /* drift max-tier → boost energy (keeps BOOST! off gold) */
   --display: 'Anton', 'Saira', system-ui, sans-serif;
   font-family: 'Saira', system-ui, -apple-system, sans-serif;
 }
@@ -54,7 +56,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
   animation: chrome-drift 6s linear infinite;
 }
 @keyframes chrome-drift { to { transform: translateX(90px); } }
-@media (prefers-reduced-motion: reduce) { .screen::before { animation: none; } }
+/* staggered entrance each time a screen is shown (display toggles restart it);
+   #hud isn't a .screen, so this never touches the in-race HUD */
+.screen:not(.hidden) > * { animation: ui-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.screen:not(.hidden) > *:nth-child(2) { animation-delay: 0.07s; }
+.screen:not(.hidden) > *:nth-child(3) { animation-delay: 0.14s; }
+@media (prefers-reduced-motion: reduce) {
+  .screen::before,
+  .screen:not(.hidden) > *,
+  #hud-boost, #hud-finallap, #hud-wrongway, #tt-record, #xp-levelup, #hud-countdown { animation: none; }
+}
 /* text entry stays selectable despite the screen-wide user-select: none */
 .screen input[type='text'], .screen input[type='search'], .screen input:not([type]) {
   user-select: text; -webkit-user-select: text;
@@ -206,7 +217,7 @@ input:focus { border-color: var(--accent); }
 #tt-result { margin: 14px 0 4px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
 #tt-record {
   font-weight: 900; font-style: italic; font-size: 20px; color: var(--accent);
-  animation: pulse 0.5s infinite alternate;
+  animation: record-pop 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .tt-hint { font-size: 12px; align-self: center; }
 #xp-lines { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -216,7 +227,7 @@ input:focus { border-color: var(--accent); }
 #xp-next { font-size: 12px; font-variant-numeric: tabular-nums; }
 #xp-levelup {
   margin-top: 8px; font-weight: 900; font-style: italic; color: var(--accent);
-  font-size: 20px; animation: pulse 0.4s infinite alternate;
+  font-size: 20px; animation: levelup-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 #xp-unlocks { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; color: var(--go); }
 .player-list .lvl { font-size: 11px; font-weight: 800; color: var(--muted); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 1px 6px; }
@@ -237,13 +248,13 @@ input:focus { border-color: var(--accent); }
   left: 26px; bottom: 30px; width: 220px; height: 16px; border-radius: 8px;
   background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); overflow: hidden;
 }
-#hud-drift-fill { height: 100%; width: 0%; background: #6fd3ff; transition: background 0.1s; }
+#hud-drift-fill { height: 100%; width: 0%; background: var(--drift); transition: background 0.1s; }
 #hud-drift-label {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 9px; font-weight: 800; letter-spacing: 0.3em; color: rgba(255, 255, 255, 0.65);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); pointer-events: none;
 }
-#hud-boost { left: 26px; bottom: 56px; font-weight: 900; color: var(--accent); font-style: italic; font-size: 22px; animation: pulse 0.5s infinite alternate; }
+#hud-boost { left: 26px; bottom: 56px; font-weight: 900; color: var(--boost); font-style: italic; font-size: 22px; animation: boost-pump 0.4s ease-in-out infinite alternate; }
 #hud-minimap { position: absolute; right: 22px; bottom: 92px; opacity: 0.92; }
 #hud-replay {
   left: 50%; bottom: 22px; transform: translateX(-50%);
@@ -266,17 +277,18 @@ input:focus { border-color: var(--accent); }
 #hud-finallap {
   left: 50%; top: 34%; transform: translateX(-50%);
   font-size: 44px; font-weight: 900; font-style: italic; color: var(--accent);
-  text-shadow: 0 4px 18px rgba(0,0,0,0.6); animation: pulse 0.4s infinite alternate;
+  text-shadow: 0 4px 18px rgba(0,0,0,0.6); animation: finallap-throb 0.45s ease-in-out infinite alternate;
 }
+/* danger reads as an alarm, not a celebration: a sharp lateral shake */
 #hud-wrongway {
   left: 50%; top: 44%; transform: translateX(-50%);
-  font-size: 30px; font-weight: 900; color: #ff4757;
-  text-shadow: 0 4px 18px rgba(0,0,0,0.6); animation: pulse 0.35s infinite alternate;
+  font-size: 30px; font-weight: 900; color: var(--accent2);
+  text-shadow: 0 4px 18px rgba(0,0,0,0.6); animation: wrongway-shake 0.5s ease-in-out infinite;
 }
 #hud-item {
   left: 50%; top: 22px; transform: translateX(-50%);
   width: 74px; height: 74px; border-radius: 16px;
-  background: rgba(20, 25, 38, 0.85); border: 2px solid var(--accent);
+  background: rgba(20, 25, 38, 0.85); border: 2px solid rgba(255, 255, 255, 0.45);
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 6px 24px rgba(0,0,0,0.5); animation: itempop 0.35s ease both;
 }
@@ -313,8 +325,33 @@ input:focus { border-color: var(--accent); }
   left: 26px; top: 110px; font: 12px/1.6 ui-monospace, monospace; color: #9fe8a0;
   background: rgba(0,0,0,0.55); padding: 8px 12px; border-radius: 8px; white-space: pre;
 }
-@keyframes pulse { from { opacity: 0.65; } to { opacity: 1; } }
 @keyframes pop { 0% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; } 20% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0.9; } }
+/* event motion carries meaning — each indicator animates the way its event feels */
+@keyframes boost-pump { from { transform: scale(0.94); opacity: 0.72; } to { transform: scale(1.08); opacity: 1; } }
+@keyframes finallap-throb {
+  from { transform: translateX(-50%) scale(1);    opacity: 0.82; }
+  to   { transform: translateX(-50%) scale(1.06); opacity: 1; }
+}
+@keyframes wrongway-shake {
+  0%, 100% { transform: translateX(-50%); }
+  20% { transform: translateX(calc(-50% - 7px)) rotate(-1.5deg); }
+  40% { transform: translateX(calc(-50% + 7px)) rotate(1.5deg); }
+  60% { transform: translateX(calc(-50% - 5px)) rotate(-1deg); }
+  80% { transform: translateX(calc(-50% + 5px)) rotate(1deg); }
+}
+@keyframes record-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  55% { transform: scale(1.18); opacity: 1; }
+  75% { transform: scale(0.94); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes levelup-rise {
+  0% { transform: translateY(10px) scale(0.8); opacity: 0; }
+  60% { transform: translateY(-3px) scale(1.12); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+/* menus arrive with a brief staggered rise instead of snapping in */
+@keyframes ui-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
 .results-card { min-width: 420px; }
 .results-list { margin: 0; padding: 0 0 0 8px; display: flex; flex-direction: column; gap: 10px; }
