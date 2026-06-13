@@ -207,6 +207,28 @@ export class GameLobby {
         this.broadcastRoom(room);
         return;
       }
+      case 'setLaps': {
+        const room = ctx.room;
+        if (!room || room.state !== 'lobby') return;
+        if (this.seatIndexOf(ctx) !== 0) {
+          ctx.conn.send({ t: 'error', message: 'Only the host can change the laps' });
+          return;
+        }
+        room.laps = msg.laps;
+        this.broadcastRoom(room);
+        return;
+      }
+      case 'setPublic': {
+        const room = ctx.room;
+        if (!room || room.state !== 'lobby') return;
+        if (this.seatIndexOf(ctx) !== 0) {
+          ctx.conn.send({ t: 'error', message: 'Only the host can change visibility' });
+          return;
+        }
+        room.isPublic = msg.isPublic;
+        this.broadcastRoom(room);
+        return;
+      }
       case 'addBot': {
         const room = ctx.room;
         if (!room || room.state !== 'lobby') return;

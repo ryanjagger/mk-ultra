@@ -88,6 +88,8 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('leaveRoom') }),
   z.object({ t: z.literal('setReady'), ready: z.boolean() }),
   z.object({ t: z.literal('setTrack'), track: trackChoice }), // host-only, lobby-only
+  z.object({ t: z.literal('setLaps'), laps: z.number().int().min(1).max(MAX_LAPS) }), // host-only, lobby-only
+  z.object({ t: z.literal('setPublic'), isPublic: z.boolean() }), // host-only, lobby-only
   // host-only, lobby-only: 0 = single races, N>=2 = Grand Prix of N races
   z.object({ t: z.literal('setCup'), races: z.number().int().min(0).max(8) }),
   z.object({ t: z.literal('setMode'), mode: gameMode }), // host-only, lobby-only

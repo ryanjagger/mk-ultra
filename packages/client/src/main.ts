@@ -133,9 +133,9 @@ function fillTrackSelect(sel: HTMLSelectElement): void {
     sel.appendChild(opt);
   }
 }
-const createTrackSel = $<HTMLSelectElement>('create-track');
+const ttTrackSel = $<HTMLSelectElement>('tt-track');
 const lobbyTrackSel = $<HTMLSelectElement>('lobby-track');
-fillTrackSelect(createTrackSel);
+fillTrackSelect(ttTrackSel);
 fillTrackSelect(lobbyTrackSel);
 
 /** Show a track as the menu backdrop (parks demo karts on its grid). */
@@ -236,12 +236,13 @@ $('btn-quick').addEventListener('click', () =>
   net.send({ t: 'quickPlay', name: playerName(), style: myStyle() }),
 );
 $('btn-create').addEventListener('click', () =>
+  // private by default; track / laps / "list publicly" are set in the lobby
   net.send({
     t: 'createRoom',
     name: playerName(),
-    isPublic: $<HTMLInputElement>('create-public').checked,
-    laps: Number($<HTMLSelectElement>('create-laps').value),
-    track: createTrackSel.value,
+    isPublic: false,
+    laps: 3,
+    track: RANDOM_TRACK,
     style: myStyle(),
   }),
 );
@@ -313,14 +314,19 @@ function renderLobby(): void {
   if (!lastRoom) return;
   const cup = lastRoom.cup;
   $('lobby-code').textContent = lastRoom.code;
-  $('lobby-meta').textContent =
-    `${lastRoom.isPublic ? 'public' : 'private'} · ${lastRoom.laps} laps` +
-    (cup && !cup.done ? ` · race ${cup.raceIndex + 1}/${cup.totalRaces}` : '');
+  // laps + visibility are live controls now, so the meta only carries cup progress
+  $('lobby-meta').textContent = cup && !cup.done ? `race ${cup.raceIndex + 1}/${cup.totalRaces}` : '';
   const isHostNow = lastRoom.you === 0;
   lobbyTrackSel.disabled = !isHostNow;
   if (document.activeElement !== lobbyTrackSel && lobbyTrackSel.value !== lastRoom.track) {
     lobbyTrackSel.value = lastRoom.track;
   }
+  const lapsSel = $<HTMLSelectElement>('lobby-laps');
+  lapsSel.disabled = !isHostNow;
+  if (document.activeElement !== lapsSel) lapsSel.value = String(lastRoom.laps);
+  const publicChk = $<HTMLInputElement>('lobby-public');
+  publicChk.disabled = !isHostNow;
+  if (document.activeElement !== publicChk) publicChk.checked = lastRoom.isPublic;
   const cupSel = $<HTMLSelectElement>('lobby-cup');
   cupSel.disabled = !isHostNow;
   if (document.activeElement !== cupSel) {
@@ -405,6 +411,12 @@ $('btn-ready').addEventListener('click', () => {
 });
 lobbyTrackSel.addEventListener('change', () => {
   net.send({ t: 'setTrack', track: lobbyTrackSel.value });
+});
+$<HTMLSelectElement>('lobby-laps').addEventListener('change', (e) => {
+  net.send({ t: 'setLaps', laps: Number((e.target as HTMLSelectElement).value) });
+});
+$<HTMLInputElement>('lobby-public').addEventListener('change', (e) => {
+  net.send({ t: 'setPublic', isPublic: (e.target as HTMLInputElement).checked });
 });
 $<HTMLSelectElement>('lobby-cup').addEventListener('change', (e) => {
   net.send({ t: 'setCup', races: Number((e.target as HTMLSelectElement).value) });
@@ -552,8 +564,11 @@ function startTimeTrial(trackChoice: string, laps: number, ghostOverride?: Ghost
   showScreen('race');
 }
 
-$('btn-timetrial').addEventListener('click', () =>
-  startTimeTrial(createTrackSel.value, Number($<HTMLSelectElement>('create-laps').value)),
+$('btn-timetrial').addEventListener('click', () => {
+  $('tt-setup').classList.toggle('hidden');
+});
+$('btn-tt-start').addEventListener('click', () =>
+  startTimeTrial(ttTrackSel.value, Number($<HTMLSelectElement>('tt-laps').value)),
 );
 
 // ------------------------------------------------------------ replays ----

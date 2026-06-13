@@ -17,52 +17,71 @@
         <p class="tagline">4-player rollback kart racing</p>
       </div>
       <div class="panel-row">
-        <div class="card">
-          <label class="field-label" for="name-input">Driver name</label>
-          <input id="name-input" name="nickname" maxlength="16" placeholder="Racer" autocomplete="off"
-            spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
-          <div id="driver-row">
-            <span id="driver-level" class="level-chip">LV 0</span>
-            <div class="xp-bar"><div id="driver-xpfill" class="xp-fill"></div></div>
-            <button id="btn-garage" class="btn btn-ghost">🏎 Garage</button>
-          </div>
-          <button id="btn-quick" class="btn btn-primary">⚡ Quick Play</button>
+        <!-- one obvious way to start racing, then friends + solo in clear tiers -->
+        <div class="card race-card">
+          <button id="btn-quick" class="btn btn-primary btn-hero">⚡ Quick Play</button>
+          <p class="hero-caption muted">join a public race — or we'll start one for you</p>
+
           <div class="divider"></div>
+          <span class="section-label">Play with friends</span>
+          <!-- host a private room, then set track/laps/visibility in the lobby -->
+          <div class="row"><button id="btn-create" class="btn">Host room</button></div>
           <div class="row">
-            <select id="create-laps">
-              <option value="1">1 lap</option>
-              <option value="2">2 laps</option>
-              <option value="3" selected>3 laps</option>
-              <option value="5">5 laps</option>
-            </select>
-            <select id="create-track"></select>
-            <label class="check"><input type="checkbox" id="create-public" checked /> Public</label>
-          </div>
-          <div class="row">
-            <button id="btn-create" class="btn">Create room</button>
+            <span class="muted join-label">or join with a code</span>
             <!-- type=search + the ignore attrs keep password managers away from this -->
             <input id="join-code" type="search" name="room" maxlength="4" placeholder="CODE"
               class="code-input" autocomplete="off" autocorrect="off" autocapitalize="characters"
               spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <button id="btn-join" class="btn">Join</button>
           </div>
+
+          <div class="divider"></div>
+          <span class="section-label">Solo</span>
           <div class="row">
             <button id="btn-timetrial" class="btn">⏱ Time Trial</button>
-            <span class="muted tt-hint">solo · race your best lap's ghost</span>
+            <span class="muted tt-hint">race your best lap's ghost</span>
           </div>
-          <!-- garage lives below the actions: opening it never displaces play -->
-          <div id="garage-panel" class="hidden">
-            <div class="divider"></div>
-            <h4>Livery</h4>
-            <div id="garage-liveries" class="garage-row"></div>
-            <h4>Boost flame</h4>
-            <div id="garage-flames" class="garage-row"></div>
+          <!-- Time Trial picks its own track/laps; revealed on click -->
+          <div id="tt-setup" class="hidden">
+            <div class="row">
+              <select id="tt-laps">
+                <option value="1">1 lap</option>
+                <option value="2">2 laps</option>
+                <option value="3" selected>3 laps</option>
+                <option value="5">5 laps</option>
+              </select>
+              <select id="tt-track"></select>
+              <button id="btn-tt-start" class="btn btn-primary">Start</button>
+            </div>
           </div>
+
           <p id="home-error" class="error hidden"></p>
         </div>
-        <div class="card rooms-card">
-          <h3>Public rooms</h3>
-          <ul id="room-list" class="room-list"><li class="muted">No open rooms — create one!</li></ul>
+
+        <!-- secondary column: who you are, plus open games to drop into -->
+        <div class="side-col">
+          <div class="card driver-card">
+            <label class="field-label" for="name-input">Driver</label>
+            <input id="name-input" name="nickname" maxlength="16" placeholder="Racer" autocomplete="off"
+              spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
+            <div id="driver-row">
+              <span id="driver-level" class="level-chip">LV 0</span>
+              <div class="xp-bar"><div id="driver-xpfill" class="xp-fill"></div></div>
+              <button id="btn-garage" class="btn btn-ghost">🏎 Garage</button>
+            </div>
+            <!-- garage expands inside its own card — never displaces the play actions -->
+            <div id="garage-panel" class="hidden">
+              <div class="divider"></div>
+              <h4>Livery</h4>
+              <div id="garage-liveries" class="garage-row"></div>
+              <h4>Boost flame</h4>
+              <div id="garage-flames" class="garage-row"></div>
+            </div>
+          </div>
+          <div class="card rooms-card">
+            <h3>Public rooms</h3>
+            <ul id="room-list" class="room-list"><li class="muted">No open rooms — create one!</li></ul>
+          </div>
         </div>
       </div>
       <p class="help">drive: <b>WASD</b>/<b>arrows</b> · drift: <b>space</b> · use item: <b>E</b> · look back: <b>R</b> · hold a drift to charge a boost</p>
@@ -77,6 +96,12 @@
         <div class="row">
           <label class="field-label" for="lobby-track">Track</label>
           <select id="lobby-track"></select>
+          <select id="lobby-laps" title="Laps">
+            <option value="1">1 lap</option>
+            <option value="2">2 laps</option>
+            <option value="3">3 laps</option>
+            <option value="5">5 laps</option>
+          </select>
           <select id="lobby-mode" title="Game mode">
             <option value="race">🏁 Race</option>
             <option value="battle">🎈 Battle</option>
@@ -86,6 +111,9 @@
             <option value="3">Cup · 3 races</option>
             <option value="4">Cup · 4 races</option>
           </select>
+        </div>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="lobby-public" /> List in public rooms</label>
           <button id="btn-add-bot" class="btn btn-ghost hidden">+ CPU</button>
           <button id="btn-remove-bot" class="btn btn-ghost hidden">− CPU</button>
         </div>
