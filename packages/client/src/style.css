@@ -108,6 +108,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 .hero-caption { font-size: 12px; margin: 2px 0 0; text-align: center; }
 /* group headers that tier the secondary/tertiary play actions */
 .section-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.16em; }
+/* "──── or ────" — makes the create / join fork unmistakable */
+.or-sep { display: flex; align-items: center; gap: 10px; margin: 2px 0; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; }
+.or-sep::before, .or-sep::after { content: ''; flex: 1; height: 1px; background: var(--panel-border); }
 
 .card {
   background: var(--panel); border: 1px solid var(--panel-border);
@@ -131,7 +134,7 @@ input, select {
   border-radius: 10px; padding: 10px 12px; font-size: 16px; outline: none; width: 100%;
 }
 input:focus { border-color: var(--accent); }
-.code-input { text-transform: uppercase; letter-spacing: 0.4em; font-weight: 700; width: 130px; }
+.code-input { text-transform: uppercase; letter-spacing: 0.4em; font-weight: 700; text-align: center; flex: 1 1 0; min-width: 0; }
 /* it's type=search only to dodge password managers — hide webkit search chrome */
 .code-input::-webkit-search-decoration,
 .code-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
@@ -141,9 +144,8 @@ input:focus { border-color: var(--accent); }
 /* setup rows (TT picker + lobby): laps/mode/cup hug content, track takes the slack */
 #tt-laps, #lobby-laps, #lobby-mode, #lobby-cup { width: auto; flex: 0 0 auto; }
 #tt-track, #lobby-track { width: auto; flex: 1 1 150px; min-width: 150px; }
-/* friends section: Host room stretches full-width; code field stays compact beside Join */
-#btn-create { flex: 1 1 auto; }
-.join-label { font-size: 13px; white-space: nowrap; }
+/* Host room + Solo Time Trial stretch full-width; code field stays compact beside Join */
+#btn-create, #btn-timetrial { flex: 1 1 auto; }
 #tt-setup { display: flex; flex-direction: column; gap: 10px; margin-top: 2px; }
 .check { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); white-space: nowrap; }
 .check input { width: auto; }
@@ -224,7 +226,6 @@ input:focus { border-color: var(--accent); }
   font-weight: 900; font-style: italic; font-size: 20px; color: var(--accent);
   animation: record-pop 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-.tt-hint { font-size: 12px; align-self: center; }
 #xp-lines { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 #xp-lines li { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
 #xp-lines li b { color: var(--accent); font-variant-numeric: tabular-nums; }

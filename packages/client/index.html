@@ -23,24 +23,22 @@
           <p class="hero-caption muted">join a public race — or we'll start one for you</p>
 
           <div class="divider"></div>
-          <span class="section-label">Play with friends</span>
-          <!-- host a private room, then set track/laps/visibility in the lobby -->
-          <div class="row"><button id="btn-create" class="btn">Host room</button></div>
+          <!-- create a private room, then set track/laps/visibility in the lobby -->
+          <div class="row"><button id="btn-create" class="btn">Create room</button></div>
+          <p class="hero-caption muted">private · share the code to invite friends</p>
+          <div class="or-sep"><span>or</span></div>
           <div class="row">
-            <span class="muted join-label">or join with a code</span>
-            <!-- type=search + the ignore attrs keep password managers away from this -->
-            <input id="join-code" type="search" name="room" maxlength="4" placeholder="CODE"
+            <!-- type=search + the ignore attrs keep password managers away from this;
+                 placeholder is a sample code so the 4-char format is obvious -->
+            <input id="join-code" type="search" name="room" maxlength="4" placeholder="4F2K"
               class="code-input" autocomplete="off" autocorrect="off" autocapitalize="characters"
               spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <button id="btn-join" class="btn">Join</button>
           </div>
 
           <div class="divider"></div>
-          <span class="section-label">Solo</span>
-          <div class="row">
-            <button id="btn-timetrial" class="btn"><span class="ico" data-icon="timer"></span>Time Trial</button>
-            <span class="muted tt-hint">race your best lap's ghost</span>
-          </div>
+          <div class="row"><button id="btn-timetrial" class="btn"><span class="ico" data-icon="timer"></span>Solo Time Trial</button></div>
+          <p class="hero-caption muted">solo · race for your best time</p>
           <!-- Time Trial picks its own track/laps; revealed on click -->
           <div id="tt-setup" class="hidden">
             <div class="row">
