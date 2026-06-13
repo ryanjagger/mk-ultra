@@ -46,6 +46,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
     radial-gradient(ellipse at 50% 32%, rgba(12, 16, 28, 0.28), rgba(6, 8, 14, 0.9));
   user-select: none; -webkit-user-select: none;
 }
+/* quit confirm sits over the live race (which keeps simulating behind it),
+   so it dims harder than the menu screens rather than showing the renderer raw */
+#overlay-quit { background: rgba(6, 8, 14, 0.62); backdrop-filter: blur(2px); }
 /* drifting speed-streaks: motion behind the chrome (sits under the cards,
    over whatever the renderer is showing). Disabled for reduced-motion. */
 .screen::before {

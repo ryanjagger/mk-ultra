@@ -210,6 +210,17 @@
       <div class="card"><h2>Connection lost</h2><p class="muted">Reconnecting…</p></div>
     </div>
 
+    <div id="overlay-quit" class="screen hidden">
+      <div class="card">
+        <h2>Leave the race?</h2>
+        <p id="quit-confirm-msg" class="muted"></p>
+        <div class="row">
+          <button id="btn-quit-confirm" class="btn btn-primary">Quit to menu</button>
+          <button id="btn-quit-cancel" class="btn btn-ghost">Keep racing</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast" class="hidden"></div>
 
     <script type="module" src="/src/main.ts"></script>

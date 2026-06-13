@@ -83,6 +83,7 @@ const screens = {
 };
 const hud = $('hud');
 const overlayDisconnect = $('overlay-disconnect');
+const overlayQuit = $('overlay-quit');
 
 // soundtrack: races alternate between both tracks, menus play Mayhem
 const MENU_MUSIC = '/music/Nean_Kart_Mayhem.mp3';
@@ -91,6 +92,7 @@ let raceMusicIdx = 0;
 
 function showScreen(next: Screen): void {
   screen = next;
+  overlayQuit.classList.add('hidden'); // any screen change dismisses the quit prompt
   screens.home.classList.toggle('hidden', next !== 'home');
   screens.lobby.classList.toggle('hidden', next !== 'lobby');
   screens.results.classList.toggle('hidden', next !== 'results');
@@ -612,11 +614,57 @@ function exitReplay(): void {
 
 net.on('replay', (msg) => startReplay(msg));
 
+/** Escape hatch: tear down the current lobby/race/results and head home. */
+function quitToMenu(): void {
+  overlayQuit.classList.add('hidden');
+  controller = null;
+  ttParams = null;
+  $('hud-best').classList.add('hidden');
+  scene.setupIdleKarts();
+  if (lastRoom) {
+    // in a room (lobby, multiplayer race, or its results): leave it; the server
+    // confirms with `leftRoom`, which is what actually shows the home screen
+    net.send({ t: 'leaveRoom' });
+  } else {
+    showScreen('home');
+  }
+}
+
+// Mid-race quit goes through a confirm so a stray Escape doesn't drop you out of
+// the race (and, in multiplayer, your peers). The race keeps simulating behind
+// the prompt — a blocking confirm() would stall the heartbeat and every peer.
+const quitConfirmOpen = (): boolean => !overlayQuit.classList.contains('hidden');
+function openQuitConfirm(): void {
+  $('quit-confirm-msg').textContent =
+    controller instanceof TimeTrialController
+      ? 'Your run ends and you go back to the main menu.'
+      : 'Other players will continue without you.';
+  overlayQuit.classList.remove('hidden');
+}
+$('btn-quit-confirm').addEventListener('click', () => quitToMenu());
+$('btn-quit-cancel').addEventListener('click', () => overlayQuit.classList.add('hidden'));
+
 window.addEventListener('keydown', (e) => {
-  if (!(controller instanceof ReplayController)) return;
-  if (e.key === 'Escape') exitReplay();
-  const n = Number(e.key);
-  if (n >= 1 && n <= controller.state.karts.length) controller.focus = n - 1;
+  if (controller instanceof ReplayController) {
+    // replay: Escape returns to the results; number keys pick a kart to follow
+    if (e.key === 'Escape') exitReplay();
+    const n = Number(e.key);
+    if (n >= 1 && n <= controller.state.karts.length) controller.focus = n - 1;
+    return;
+  }
+  if (quitConfirmOpen()) {
+    // prompt is up: Enter confirms the quit, Escape backs out and keeps racing
+    if (e.key === 'Enter') quitToMenu();
+    else if (e.key === 'Escape') overlayQuit.classList.add('hidden');
+    return;
+  }
+  // Escape from a lobby/race/results screen heads to the main menu — but not
+  // while a form control is focused (a select swallows Esc to close its popup)
+  if (e.key !== 'Escape' || screen === 'home') return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT')) return;
+  if (screen === 'race') openQuitConfirm(); // mid-race: confirm first
+  else quitToMenu(); // lobby / results: cheap to leave, go straight home
 });
 
 net.on('input', (msg) => netRace()?.onRemoteInput(msg.p, msg.f, msg.m, msg.r));
