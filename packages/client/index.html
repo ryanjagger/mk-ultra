@@ -19,7 +19,7 @@
       <div class="panel-row">
         <!-- one obvious way to start racing, then friends + solo in clear tiers -->
         <div class="card race-card">
-          <button id="btn-quick" class="btn btn-primary btn-hero">⚡ Quick Play</button>
+          <button id="btn-quick" class="btn btn-primary btn-hero"><span class="ico" data-icon="lightning"></span>Quick Play</button>
           <p class="hero-caption muted">join a public race — or we'll start one for you</p>
 
           <div class="divider"></div>
@@ -38,7 +38,7 @@
           <div class="divider"></div>
           <span class="section-label">Solo</span>
           <div class="row">
-            <button id="btn-timetrial" class="btn">⏱ Time Trial</button>
+            <button id="btn-timetrial" class="btn"><span class="ico" data-icon="timer"></span>Time Trial</button>
             <span class="muted tt-hint">race your best lap's ghost</span>
           </div>
           <!-- Time Trial picks its own track/laps; revealed on click -->
@@ -67,7 +67,7 @@
             <div id="driver-row">
               <span id="driver-level" class="level-chip">LV 0</span>
               <div class="xp-bar"><div id="driver-xpfill" class="xp-fill"></div></div>
-              <button id="btn-garage" class="btn btn-ghost">🏎 Garage</button>
+              <button id="btn-garage" class="btn btn-ghost"><span class="ico" data-icon="wrench"></span>Garage</button>
             </div>
             <!-- garage expands inside its own card — never displaces the play actions -->
             <div id="garage-panel" class="hidden">
@@ -142,31 +142,31 @@
       <div id="hud-countdown" class="hidden"></div>
       <canvas id="hud-minimap" width="170" height="170"></canvas>
       <div id="hud-finallap" class="hidden">FINAL LAP!</div>
-      <div id="hud-wrongway" class="hidden">⟲ WRONG WAY</div>
-      <div id="hud-replay" class="hidden">▶ REPLAY · 1–4 switch kart · ESC exit</div>
+      <div id="hud-wrongway" class="hidden"><span class="ico" data-icon="arrow-u-up-left"></span>WRONG WAY</div>
+      <div id="hud-replay" class="hidden"><span class="ico" data-icon="play"></span>REPLAY · 1–4 switch kart · ESC exit</div>
       <div id="hud-keys">
         <span><b>WASD</b> drive</span>
         <span><b>SPACE</b> drift · charge boost</span>
         <span><b>E</b> use item</span>
         <span><b>R</b> look back</span>
       </div>
-      <div id="hud-mute">🔊</div>
-      <div id="hud-wait" class="hidden">⏳ waiting for players…</div>
+      <div id="hud-mute"><span class="ico" data-icon="speaker-high"></span></div>
+      <div id="hud-wait" class="hidden"><span class="ico" data-icon="hourglass"></span>waiting for players…</div>
       <div id="hud-desync" class="hidden"></div>
       <div id="hud-debug" class="hidden"></div>
     </div>
 
     <div id="screen-results" class="screen hidden">
       <div class="card results-card">
-        <h2 id="results-title">🏁 Race results</h2>
+        <h2 id="results-title"><span class="ico" data-icon="flag-checkered"></span>Race results</h2>
         <ol id="results-list" class="results-list"></ol>
         <div id="tt-result" class="hidden">
-          <div id="tt-record" class="hidden">🏆 NEW RECORD!</div>
+          <div id="tt-record" class="hidden"><span class="ico" data-icon="trophy"></span>NEW RECORD!</div>
           <p id="tt-best" class="muted"></p>
           <div id="tt-lb" class="hidden">
-            <h3>🌍 World records</h3>
+            <h3><span class="ico" data-icon="globe"></span>World records</h3>
             <ol id="tt-lb-list" class="results-list"></ol>
-            <button id="btn-race-record" class="btn btn-ghost hidden">👻 Race the record</button>
+            <button id="btn-race-record" class="btn btn-ghost hidden"><span class="ico" data-icon="ghost"></span>Race the record</button>
           </div>
         </div>
         <div id="results-xp">
@@ -176,14 +176,14 @@
             <div class="xp-bar"><div id="xp-fill" class="xp-fill"></div></div>
             <span id="xp-next" class="muted"></span>
           </div>
-          <div id="xp-levelup" class="hidden">⬆ LEVEL UP!</div>
+          <div id="xp-levelup" class="hidden"><span class="ico" data-icon="arrow-fat-up"></span>LEVEL UP!</div>
           <ul id="xp-unlocks"></ul>
         </div>
         <div class="row">
           <button id="btn-back-lobby" class="btn btn-primary">Back to lobby</button>
-          <button id="btn-replay" class="btn">▶ Watch replay</button>
+          <button id="btn-replay" class="btn"><span class="ico" data-icon="play"></span>Watch replay</button>
           <button id="btn-results-leave" class="btn btn-ghost">Leave room</button>
-          <button id="btn-tt-retry" class="btn btn-primary hidden">↻ Retry</button>
+          <button id="btn-tt-retry" class="btn btn-primary hidden"><span class="ico" data-icon="arrow-clockwise"></span>Retry</button>
           <button id="btn-tt-home" class="btn btn-ghost hidden">Home</button>
         </div>
       </div>

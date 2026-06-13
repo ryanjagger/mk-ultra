@@ -38,6 +38,7 @@ import {
   levelFromXp,
 } from './cosmetics.js';
 import { FeatTracker, awardRace, type RaceAward } from './progression.js';
+import { iconHTML, applyIcons } from './icons.js';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -54,6 +55,8 @@ const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
 // debug hook (read-only by convention), alongside the per-race __mk.controller
 (window as { __mkScene?: unknown }).__mkScene = scene;
 scene.setupIdleKarts();
+
+applyIcons(); // swap the static [data-icon] placeholders for inline Phosphor SVGs
 
 const audio = new AudioEngine();
 (window as { __mkAudio?: unknown }).__mkAudio = audio; // debug/E2E hook
@@ -227,7 +230,7 @@ $('btn-garage').addEventListener('click', () => {
   const panel = $('garage-panel');
   const opening = panel.classList.contains('hidden');
   panel.classList.toggle('hidden', !opening);
-  $('btn-garage').textContent = opening ? '✕ Close garage' : '🏎 Garage';
+  $('btn-garage').innerHTML = opening ? iconHTML('x') + 'Close garage' : iconHTML('wrench') + 'Garage';
   if (opening) renderGarage();
 });
 renderDriver();
@@ -353,13 +356,14 @@ function renderLobby(): void {
     const tag = document.createElement('span');
     if (p.bot) {
       tag.className = 'tag ready';
-      tag.textContent = '🤖 ready';
+      tag.innerHTML = iconHTML('robot') + 'ready';
     } else if (p.host) {
       tag.className = 'tag host';
-      tag.textContent = '★ host';
+      tag.innerHTML = iconHTML('crown') + 'host';
     } else {
       tag.className = `tag ${p.ready ? 'ready' : 'waiting'}`;
-      tag.textContent = p.ready ? '✓ ready' : 'waiting';
+      if (p.ready) tag.innerHTML = iconHTML('check') + 'ready';
+      else tag.textContent = 'waiting';
     }
     li.append(dot, nm, lvl, tag);
     if (cup) {
@@ -391,7 +395,9 @@ function renderLobby(): void {
       if (p > (cup.points[best] ?? 0)) best = i;
     });
     const winner = lastRoom.players[best]?.name ?? '?';
-    $('lobby-hint').textContent = `🏆 ${winner} wins the cup with ${cup.points[best]} pts!`;
+    const hint = $('lobby-hint');
+    hint.innerHTML = iconHTML('trophy'); // icon is trusted markup…
+    hint.append(`${winner} wins the cup with ${cup.points[best]} pts!`); // …name stays a text node
     return;
   }
   $('lobby-hint').textContent = isHost
@@ -621,7 +627,7 @@ net.on('dropped', (msg) => {
 net.on('desync', (msg) => {
   netRace()?.onDesync(msg.frame, msg.detail);
   const el = $('hud-desync');
-  el.textContent = `⚠ DESYNC at frame ${msg.frame} — simulation diverged`;
+  el.innerHTML = iconHTML('warning') + `DESYNC at frame ${msg.frame} — simulation diverged`;
   el.classList.remove('hidden');
 });
 net.on('error', (msg) => {
@@ -641,7 +647,7 @@ keyboard.onDebugToggle = () => {
 
 const muteBtn = $('hud-mute');
 function renderMute(): void {
-  muteBtn.textContent = audio.muted ? '🔇' : '🔊';
+  muteBtn.innerHTML = iconHTML(audio.muted ? 'speaker-x' : 'speaker-high');
   muteBtn.title = audio.muted ? 'Unmute (M)' : 'Mute (M)';
 }
 renderMute();
@@ -665,7 +671,9 @@ function fmtTime(sec: number): string {
 function showResults(): void {
   if (!controller) return;
   const tt = controller instanceof TimeTrialController ? controller : null;
-  $('results-title').textContent = tt ? '⏱ Time trial' : '🏁 Race results';
+  $('results-title').innerHTML = tt
+    ? iconHTML('timer') + 'Time trial'
+    : iconHTML('flag-checkered') + 'Race results';
   const ol = $('results-list');
   ol.innerHTML = '';
   for (const idx of controller.placements()) {
@@ -758,7 +766,8 @@ function renderXpAward(award: RaceAward): void {
   unlocks.innerHTML = '';
   for (const u of award.unlocked) {
     const li = document.createElement('li');
-    li.textContent = `🔓 ${u} — equip it in the Garage`;
+    li.innerHTML = iconHTML('lock-key-open');
+    li.append(`${u} — equip it in the Garage`);
     unlocks.appendChild(li);
   }
   // animate the fill: start from the pre-race position (or 0 after a level-up)
