@@ -1,13 +1,34 @@
+/* --------------------------------------------------------- typefaces ---- */
+/* Self-hosted (public/fonts) — no runtime CDN, works offline & headless, and
+   renders identically on every OS. Anton = display wordmark/headers;
+   Saira = sport-technical body + HUD (variable, tabular figures, true italics). */
+@font-face {
+  font-family: 'Anton';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/anton-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Saira';
+  font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url('/fonts/saira-roman.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Saira';
+  font-style: italic; font-weight: 100 900; font-display: swap;
+  src: url('/fonts/saira-italic.woff2') format('woff2');
+}
+
 :root {
-  --bg: #0c0f17;
-  --panel: rgba(13, 17, 27, 0.88);
-  --panel-border: rgba(255, 255, 255, 0.09);
+  --bg: #0a0c12;
+  --panel: #10141e;          /* opaque sport panel (was frosted glass) */
+  --panel-border: rgba(255, 255, 255, 0.08);
   --text: #eef1f7;
   --muted: #8b93a7;
   --accent: #ffd23f;
   --accent2: #ff4757;
   --go: #3fd06b;
-  font-family: 'Avenir Next', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --display: 'Anton', 'Saira', system-ui, sans-serif;
+  font-family: 'Saira', system-ui, -apple-system, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -17,10 +38,23 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 
 .screen {
   position: fixed; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 18px; z-index: 10;
-  background: radial-gradient(ellipse at 50% 20%, rgba(10, 14, 24, 0.25), rgba(8, 10, 18, 0.78));
+  align-items: center; justify-content: center; gap: 18px; z-index: 10; overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% -12%, rgba(255, 210, 63, 0.10), transparent 52%),
+    radial-gradient(ellipse at 50% 32%, rgba(12, 16, 28, 0.28), rgba(6, 8, 14, 0.9));
   user-select: none; -webkit-user-select: none;
 }
+/* drifting speed-streaks: motion behind the chrome (sits under the cards,
+   over whatever the renderer is showing). Disabled for reduced-motion. */
+.screen::before {
+  content: ''; position: absolute; inset: -30%; z-index: -1; pointer-events: none;
+  background-image: repeating-linear-gradient(
+    114deg, transparent 0 44px,
+    rgba(255, 255, 255, 0.024) 44px 46px, transparent 46px 90px);
+  animation: chrome-drift 6s linear infinite;
+}
+@keyframes chrome-drift { to { transform: translateX(90px); } }
+@media (prefers-reduced-motion: reduce) { .screen::before { animation: none; } }
 /* text entry stays selectable despite the screen-wide user-select: none */
 .screen input[type='text'], .screen input[type='search'], .screen input:not([type]) {
   user-select: text; -webkit-user-select: text;
@@ -29,23 +63,44 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 
 .title-wrap { text-align: center; }
 .title {
-  margin: 0; font-size: clamp(56px, 9vw, 110px); font-weight: 900; letter-spacing: 0.06em;
-  background: linear-gradient(180deg, #fff 10%, var(--accent) 55%, #f08c1a 90%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  text-shadow: 0 10px 40px rgba(255, 210, 63, 0.25);
-  font-style: italic;
+  margin: 0; font-family: var(--display); font-weight: 400;
+  font-size: clamp(66px, 11vw, 128px); line-height: 0.84; letter-spacing: 0.012em;
+  text-transform: uppercase; color: var(--text); transform: skewX(-7deg);
+  /* hard "extruded decal": gold lift + dark ground. No gradient-clip, no glow. */
+  text-shadow:
+    2px 2px 0 var(--accent), 4px 4px 0 var(--accent),
+    5px 6px 0 #a07a10, 8px 10px 12px rgba(0, 0, 0, 0.45);
 }
-.tagline { margin: 2px 0 0; color: var(--muted); letter-spacing: 0.35em; text-transform: uppercase; font-size: 13px; }
+/* checkered-flag underline, faded at both ends */
+.title-wrap::after {
+  content: ''; display: block; height: 12px; width: min(340px, 64vw); margin: 18px auto 0;
+  background-image: conic-gradient(#eef1f7 25%, #0a0c12 0 50%, #eef1f7 0 75%, #0a0c12 0);
+  background-size: 12px 12px; opacity: 0.8;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);
+}
+.tagline {
+  margin: 14px 0 0; color: var(--muted); font-weight: 600;
+  letter-spacing: 0.4em; text-transform: uppercase; font-size: 12px;
+}
 
 .panel-row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
 
 .card {
-  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-top: 3px solid var(--accent);            /* racing-stripe edge */
+  border-radius: 3px 3px 12px 12px;
   padding: 22px 24px; min-width: 320px; max-width: 420px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); backdrop-filter: blur(10px);
+  /* hard offset "decal" depth instead of frosted glass */
+  box-shadow: 8px 8px 0 -1px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.55);
   display: flex; flex-direction: column; gap: 12px;
 }
-.card h2, .card h3 { margin: 0; }
+.card h2, .card h3 {
+  margin: 0; font-family: var(--display); font-weight: 400;
+  text-transform: uppercase; letter-spacing: 0.02em; color: var(--text);
+}
+.card h2 { font-size: 25px; }
+.card h3 { font-size: 20px; }
 
 .field-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
 input, select {
@@ -70,18 +125,22 @@ input:focus { border-color: var(--accent); }
 .divider { height: 1px; background: var(--panel-border); margin: 4px 0; }
 
 .btn {
-  background: rgba(255, 255, 255, 0.1); color: var(--text); border: 1px solid var(--panel-border);
-  border-radius: 10px; padding: 10px 18px; font-size: 15px; font-weight: 700; cursor: pointer;
-  transition: transform 0.06s ease, background 0.15s ease; letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.08); color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 8px; padding: 11px 18px; font-size: 14px; font-weight: 700; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  transition: transform 0.06s ease, background 0.15s ease, box-shadow 0.1s ease;
 }
-.btn:hover { background: rgba(255, 255, 255, 0.18); }
-.btn:active { transform: scale(0.97); }
+.btn:hover { background: rgba(255, 255, 255, 0.16); }
+.btn:active { transform: translateY(1px) scale(0.99); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background: var(--accent); border-color: transparent; color: #20180a; }
+/* filled variants get a tactile "raised-key" base that compresses on press */
+.btn-primary { background: var(--accent); border-color: transparent; color: #20180a; box-shadow: 0 3px 0 #ab8214; }
 .btn-primary:hover { background: #ffdf6e; }
-.btn-go { background: var(--go); border-color: transparent; color: #0a2012; }
+.btn-primary:active { box-shadow: 0 1px 0 #ab8214; }
+.btn-go { background: var(--go); border-color: transparent; color: #0a2012; box-shadow: 0 3px 0 #259a4b; }
 .btn-go:hover { background: #5fe287; }
-.btn-ghost { background: transparent; }
+.btn-go:active { box-shadow: 0 1px 0 #259a4b; }
+.btn-ghost { background: transparent; box-shadow: none; }
 .error { color: var(--accent2); margin: 0; font-size: 14px; }
 .muted { color: var(--muted); }
 .help { color: var(--muted); font-size: 13px; }
@@ -95,7 +154,8 @@ input:focus { border-color: var(--accent); }
 .lobby-card { min-width: 380px; }
 .lobby-head { display: flex; align-items: baseline; gap: 12px; }
 .code-chip {
-  font: inherit; font-weight: 900; letter-spacing: 0.25em; color: var(--accent);
+  font-family: 'Saira'; font-weight: 800; font-size: 0.8em; letter-spacing: 0.22em;
+  color: var(--accent); vertical-align: middle;
   background: rgba(255, 210, 63, 0.12); border: 1px dashed rgba(255, 210, 63, 0.5);
   padding: 3px 10px; border-radius: 8px; cursor: pointer;
 }
