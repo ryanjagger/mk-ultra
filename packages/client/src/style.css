@@ -142,8 +142,8 @@ input:focus { border-color: var(--accent); }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .row > .btn { flex-shrink: 0; }
 /* setup rows (TT picker + lobby): laps/mode/cup hug content, track takes the slack */
-#tt-laps, #lobby-laps, #lobby-mode, #lobby-cup { width: auto; flex: 0 0 auto; }
-#tt-track, #lobby-track { width: auto; flex: 1 1 150px; min-width: 150px; }
+#tt-laps { width: auto; flex: 0 0 auto; }
+#tt-track { width: auto; flex: 1 1 150px; min-width: 150px; }
 /* Host room + Solo Time Trial stretch full-width; code field stays compact beside Join */
 #btn-create, #btn-timetrial { flex: 1 1 auto; }
 #tt-setup { display: flex; flex-direction: column; gap: 10px; margin-top: 2px; }
@@ -179,13 +179,22 @@ input:focus { border-color: var(--accent); }
 .room-list .btn { padding: 6px 12px; font-size: 13px; }
 
 .lobby-card { min-width: 380px; }
-.lobby-head { display: flex; align-items: baseline; gap: 12px; }
-.code-chip {
-  font-family: 'Saira'; font-weight: 800; font-size: 0.8em; letter-spacing: 0.22em;
-  color: var(--accent); vertical-align: middle;
-  background: rgba(255, 210, 63, 0.12); border: 1px dashed rgba(255, 210, 63, 0.5);
-  padding: 3px 10px; border-radius: 8px; cursor: pointer;
+/* the room code is the hub's headline: big, gold, one tap to copy */
+.code-big {
+  display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%;
+  font-family: 'Saira'; font-weight: 800; font-size: 30px; letter-spacing: 0.3em;
+  color: var(--accent); background: rgba(255, 210, 63, 0.1);
+  border: 1px dashed rgba(255, 210, 63, 0.5); border-radius: 10px;
+  padding: 12px 16px; cursor: pointer; transition: background 0.15s;
 }
+.code-big:hover { background: rgba(255, 210, 63, 0.18); }
+.code-big .ico { width: 0.62em; height: 0.62em; margin: 0; color: var(--muted); }
+/* labelled 2×2 race-setup grid: every control says what it does */
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.setup-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.players-head { display: flex; align-items: center; gap: 8px; }
+.players-head .field-label { margin-right: auto; }
+.players-head .btn { padding: 5px 10px; font-size: 12px; }
 .player-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .player-list li {
   display: flex; align-items: center; gap: 10px; padding: 9px 12px;

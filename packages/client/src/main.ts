@@ -316,7 +316,8 @@ net.on('leftRoom', () => {
 function renderLobby(): void {
   if (!lastRoom) return;
   const cup = lastRoom.cup;
-  $('lobby-code').textContent = lastRoom.code;
+  $('lobby-code-text').textContent = lastRoom.code; // sibling copy icon stays
+  $('lobby-player-count').textContent = `· ${lastRoom.players.length}/4`;
   // laps + visibility are live controls now, so the meta only carries cup progress
   $('lobby-meta').textContent = cup && !cup.done ? `race ${cup.raceIndex + 1}/${cup.totalRaces}` : '';
   const isHostNow = lastRoom.you === 0;
