@@ -23,7 +23,7 @@ import {
   type TrackRuntime,
   type Vec2Fx,
 } from '@mk/sim';
-import type { KartRender } from './game.js';
+import { lerpAngle, type KartRender } from './game.js';
 import { Terrain } from './terrain.js';
 import { sponsorFor, titleSponsor, type Sponsor } from './sponsors.js';
 
@@ -792,6 +792,8 @@ export class GameScene {
   private prevRearview = false;
   private camRoll = 0;
   private camDip = 0;
+  /** low-passed camera yaw: filters per-tick steering dither out of the view */
+  private camYaw = 0;
   private t = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -2008,7 +2010,15 @@ export class GameScene {
         this.camInit = false;
       }
       const facing = this.rearview ? -1 : 1;
-      const dir = new THREE.Vector3(Math.cos(me.headingRad), 0, -Math.sin(me.headingRad));
+      // low-pass the yaw the camera is built from, so the bot's per-tick
+      // steering dither (and twitchy human input) doesn't swing the whole
+      // view — sustained turns pass through, the high-frequency dither filters
+      // out. Shares the position lerp's time constant so the camera's position
+      // and orientation move coherently; snaps on (re)init like the position.
+      const f = 1 - Math.pow(0.0008, dt);
+      if (!this.camInit) this.camYaw = me.headingRad;
+      else this.camYaw = lerpAngle(this.camYaw, me.headingRad, f);
+      const dir = new THREE.Vector3(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
       const desired = new THREE.Vector3(me.x, 0, me.z).addScaledVector(dir, -7.6 * facing);
       // ride the terrain: sample under the camera so crests drop away ahead;
       // boosting pulls the camera lower for a sense of speed
@@ -2020,7 +2030,6 @@ export class GameScene {
         this.camera.position.copy(desired);
         this.camInit = true;
       } else {
-        const f = 1 - Math.pow(0.0008, dt);
         this.camera.position.lerp(desired, f);
       }
       this.camera.lookAt(look);
