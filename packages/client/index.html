@@ -2,9 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- lock zoom so the floating thumb-joystick isn't fighting pinch/double-tap during play -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+    <!-- lock zoom so the floating thumb-joystick isn't fighting pinch/double-tap during play;
+         viewport-fit=cover lets the standalone app go edge-to-edge under the notch/home indicator -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>MK ULTRA — rollback kart racing</title>
+    <!-- installable web app: "Add to Home Screen" launches full-screen with no browser chrome -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0c12" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MK ULTRA" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>" />
     <link rel="preload" href="/fonts/saira-roman.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/anton-400.woff2" as="font" type="font/woff2" crossorigin />

@@ -50,6 +50,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: non
   justify-content: center;
   justify-content: safe center;
   overflow-y: auto; overflow-x: clip;
+  /* keep menu cards out from under the notch / home indicator in standalone mode */
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
   background:
     radial-gradient(ellipse at 50% -12%, rgba(255, 210, 63, 0.10), transparent 52%),
     radial-gradient(ellipse at 50% 32%, rgba(12, 16, 28, 0.28), rgba(6, 8, 14, 0.9));
@@ -262,7 +264,13 @@ input:focus { border-color: var(--accent); }
 .player-list .lvl { font-size: 11px; font-weight: 800; color: var(--muted); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 1px 6px; }
 
 /* ------------------------------------------------------------- HUD ---- */
-#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-variant-numeric: tabular-nums; }
+/* inset the whole HUD coordinate space by the device safe areas so the
+   edge-anchored readouts clear the notch / home indicator in standalone mode
+   (env() is 0 in a normal browser tab, so this is a no-op there) */
+#hud {
+  position: fixed; pointer-events: none; z-index: 5; font-variant-numeric: tabular-nums;
+  inset: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
 #hud > div { position: absolute; }
 #hud-pos { left: 26px; top: 18px; font-weight: 900; font-style: italic; text-shadow: 0 3px 14px rgba(0,0,0,0.7); }
 #hud-pos-num { font-size: 64px; color: var(--accent); }
@@ -441,7 +449,12 @@ input:focus { border-color: var(--accent); }
    the width. Scrolling/centering is handled by the base .screen rule, so it
    works in landscape too — this block is layout only. */
 @media (max-width: 640px) {
-  .screen { padding: 14px; gap: 12px; }
+  /* 14px breathing room, but never less than the device safe area */
+  .screen {
+    gap: 12px;
+    padding: max(14px, env(safe-area-inset-top, 0)) max(14px, env(safe-area-inset-right, 0))
+             max(14px, env(safe-area-inset-bottom, 0)) max(14px, env(safe-area-inset-left, 0));
+  }
   .title { font-size: clamp(46px, 18vw, 92px); }
   .tagline { font-size: 13px; }
   .panel-row { flex-direction: column; align-items: stretch; gap: 12px; width: 100%; }
