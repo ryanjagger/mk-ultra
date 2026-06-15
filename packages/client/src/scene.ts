@@ -2206,4 +2206,16 @@ export class GameScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
+
+  /** Change effective render resolution. DPR-only; safe to call any frame (no recompiles). */
+  setRenderScale(dpr: number): void {
+    const d = Math.min(dpr, window.devicePixelRatio || 1);
+    this.renderer.setPixelRatio(d);
+    this.composer.setPixelRatio(d); // MUST also scale the offscreen targets the composer renders into
+    this.resize(); // commit to the drawing buffer (setPixelRatio alone doesn't resize)
+  }
+
+  effectiveDpr(): number {
+    return this.renderer.getPixelRatio();
+  }
 }

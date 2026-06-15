@@ -343,6 +343,11 @@ input:focus { border-color: var(--accent); }
   left: 26px; top: 110px; font: 12px/1.6 ui-monospace, monospace; color: #9fe8a0;
   background: rgba(0,0,0,0.55); padding: 8px 12px; border-radius: 8px; white-space: pre;
 }
+#perf-note {
+  left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none;
+  font: 11px/1.4 ui-monospace, monospace; letter-spacing: 0.03em; color: #c9d4e0;
+  background: rgba(0,0,0,0.4); padding: 4px 12px; border-radius: 8px; opacity: 0.5;
+}
 @keyframes pop { 0% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; } 20% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0.9; } }
 /* event motion carries meaning — each indicator animates the way its event feels */
 @keyframes boost-pump { from { transform: scale(0.94); opacity: 0.72; } to { transform: scale(1.08); opacity: 1; } }
