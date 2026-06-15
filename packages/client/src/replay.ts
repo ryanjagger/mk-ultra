@@ -16,7 +16,7 @@ import {
   type TrackRuntime,
 } from '@mk/sim';
 import { decodeRle, type ServerMsg } from '@mk/shared';
-import { snapshotKarts, lerpAngle, type KartRender, type RaceLike } from './game.js';
+import { snapshotKarts, writeKarts, lerpAngle, type KartRender, type RaceLike } from './game.js';
 
 export type ReplayData = Extract<ServerMsg, { t: 'replay' }>;
 
@@ -79,9 +79,11 @@ export class ReplayController implements RaceLike {
     }
     while (this.state.tick < target && !this.done) {
       const masks = this.state.karts.map((_, i) => this.inputs[i]![this.state.tick] ?? 0);
-      this.prevKarts = this.currKarts;
       stepSim(this.state, masks);
-      this.currKarts = snapshotKarts(this.state, this.track);
+      const tmp = this.prevKarts;
+      this.prevKarts = this.currKarts;
+      this.currKarts = tmp;
+      writeKarts(this.currKarts, this.state, this.track);
       if (this.state.phase === PHASE_FINISHED && this.finishedAt < 0) {
         this.finishedAt = this.state.tick;
       }

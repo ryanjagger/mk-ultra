@@ -26,6 +26,7 @@ import { TimeTrialController } from './timetrial.js';
 import { TT_SEED, type GhostRecord } from './ghosts.js';
 import { ReplayController, type ReplayData } from './replay.js';
 import { GameScene, KART_COLORS, defaultLook, type KartLook } from './scene.js';
+import { AdaptiveDpr } from './quality.js';
 import { AudioEngine } from './audio.js';
 import { getProfile, saveProfile, myStyle } from './profile.js';
 import {
@@ -55,6 +56,10 @@ const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
 // debug hook (read-only by convention), alongside the per-race __mk.controller
 (window as { __mkScene?: unknown }).__mkScene = scene;
 scene.setupIdleKarts();
+
+// automatic render-resolution scaling under frame pressure (see quality.ts)
+const adaptive = new AdaptiveDpr(Math.min(2, window.devicePixelRatio || 1));
+const perfNote = $('perf-note');
 
 applyIcons(); // swap the static [data-icon] placeholders for inline Phosphor SVGs
 
@@ -1086,7 +1091,10 @@ function updateHud(): void {
 
   drawMinimap(st);
 
-  if (debugVisible) $('hud-debug').textContent = controller.debugText(clock.rttMs);
+  if (debugVisible) {
+    const render = `\nrender   dpr ${scene.effectiveDpr().toFixed(2)}  fps ${adaptive.fps()}`;
+    $('hud-debug').textContent = controller.debugText(clock.rttMs) + render;
+  }
 }
 
 // Background-tab fallback: RAF stops when a tab is hidden, which would make
@@ -1116,6 +1124,10 @@ function frame(now: number): void {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
   lastFrameAt = performance.now();
+  // adapt render resolution to frame pressure (also on the idle/menu scene)
+  const nextDpr = adaptive.tick(dt);
+  if (nextDpr !== null) scene.setRenderScale(nextDpr);
+  perfNote.classList.toggle('hidden', !adaptive.degraded());
   if (controller && screen !== 'home' && screen !== 'lobby') {
     controller.update();
     const karts = controller.renderKarts(dt);
