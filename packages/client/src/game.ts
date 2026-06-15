@@ -17,6 +17,7 @@ import {
   onDirt,
   type RaceConfig,
   type GameState,
+  type KartState,
   type TrackRuntime,
 } from '@mk/sim';
 import { HASH_INTERVAL, INPUT_REDUNDANCY } from '@mk/shared';
@@ -70,20 +71,42 @@ export function lerpAngle(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
+/**
+ * Single source of truth for the 11 KartRender fields. Writes ALL of them
+ * every call — `dst` is a reused buffer, so a partial write would leak a stale
+ * field. Keep it total.
+ */
+export function fillKart(dst: KartRender, k: KartState, track: TrackRuntime): void {
+  dst.x = fxToFloat(k.x);
+  dst.z = -fxToFloat(k.y); // sim y (north) -> three -z
+  dst.jump = fxToFloat(k.z);
+  dst.headingRad = headingToRad(k.heading);
+  dst.speed = Math.hypot(fxToFloat(k.vx), fxToFloat(k.vy));
+  dst.boosting = k.boostTicks > 0;
+  dst.driftDir = k.driftDir;
+  dst.driftCharge = k.driftCharge;
+  dst.spinTicks = k.spinTicks;
+  dst.finished = k.finishTick >= 0;
+  dst.onDirt = track.hasDirt && onDirt(track, k.x, k.y);
+}
+
+/** Allocate a fresh KartRender[] — used for one-time buffer creation. */
 export function snapshotKarts(state: GameState, track: TrackRuntime): KartRender[] {
-  return state.karts.map((k) => ({
-    x: fxToFloat(k.x),
-    z: -fxToFloat(k.y), // sim y (north) -> three -z
-    jump: fxToFloat(k.z),
-    headingRad: headingToRad(k.heading),
-    speed: Math.hypot(fxToFloat(k.vx), fxToFloat(k.vy)),
-    boosting: k.boostTicks > 0,
-    driftDir: k.driftDir,
-    driftCharge: k.driftCharge,
-    spinTicks: k.spinTicks,
-    finished: k.finishTick >= 0,
-    onDirt: track.hasDirt && onDirt(track, k.x, k.y),
-  }));
+  return state.karts.map((k) => {
+    const r = {} as KartRender;
+    fillKart(r, k, track);
+    return r;
+  });
+}
+
+/**
+ * Write into an existing KartRender[] in place. `dst` is a fixed buffer whose
+ * length already matches `karts` (kart count is locked at race start, so it
+ * never resizes mid-race), letting the render hot path skip per-frame allocation.
+ */
+export function writeKarts(dst: KartRender[], state: GameState, track: TrackRuntime): void {
+  const ks = state.karts;
+  for (let i = 0; i < ks.length; i++) fillKart(dst[i]!, ks[i]!, track);
 }
 
 export class RaceController implements RaceLike {
@@ -202,18 +225,29 @@ export class RaceController implements RaceLike {
     while (this.session.frame < target && advances < maxAdvances) {
       const f = this.session.frame;
       if (f > this.lastInputFrame) this.sendInput(f, this.sampleMask());
-      this.prevKarts = this.currKarts;
       if (!this.session.advance()) {
         this.stalled = true;
         this.sendInputsWhileStalled(target);
         break;
       }
-      this.currKarts = snapshotKarts(this.session.state, this.trackRt);
+      // swap AFTER a successful advance, then write curr in place. On a stall
+      // session.frame freezes so alpha saturates to 1 and only curr is observed,
+      // making swap-before vs swap-after render-equivalent.
+      const tmp = this.prevKarts;
+      this.prevKarts = this.currKarts;
+      this.currKarts = tmp;
+      writeKarts(this.currKarts, this.session.state, this.trackRt);
       advances++;
     }
-    // apply any corrections that arrived while we were paced out
+    // apply any corrections that arrived while we were paced out. advance()
+    // already runs applyCorrections() internally, so in-loop corrections are
+    // captured above; this gate only refreshes curr when THIS call did work
+    // (0 advances, or a correction queued after the last advance).
+    const rb = this.session.stats.rollbacks;
     this.session.applyCorrections();
-    if (advances > 0) this.currKarts = snapshotKarts(this.session.state, this.trackRt);
+    if (this.session.stats.rollbacks > rb) {
+      writeKarts(this.currKarts, this.session.state, this.trackRt);
+    }
 
     this.alpha = Math.min(Math.max(elapsedTicks - this.session.frame + 1, 0), 1);
     this.sendHashes();

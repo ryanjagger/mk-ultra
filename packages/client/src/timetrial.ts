@@ -18,7 +18,14 @@ import {
 } from '@mk/sim';
 import { botMask } from './autodrive.js';
 import type { Keyboard } from './keyboard.js';
-import { snapshotKarts, lerpAngle, type KartRender, type RaceLike } from './game.js';
+import {
+  snapshotKarts,
+  writeKarts,
+  fillKart,
+  lerpAngle,
+  type KartRender,
+  type RaceLike,
+} from './game.js';
 import {
   TT_SEED,
   encodeRle,
@@ -85,7 +92,10 @@ export class TimeTrialController implements RaceLike {
         trackId: opts.trackId,
       });
       this.ghostInputs = decodeRle(this.ghost.rle);
-      this.ghostPrev = this.ghostCurr = snapshotKarts(this.ghostSim, this.track)[0]!;
+      // two distinct objects — ping-pong of an aliased pair would collapse
+      // prev===curr permanently and kill interpolation.
+      this.ghostPrev = snapshotKarts(this.ghostSim, this.track)[0]!;
+      this.ghostCurr = snapshotKarts(this.ghostSim, this.track)[0]!;
     }
     this.prevKarts = snapshotKarts(this.state, this.track);
     this.currKarts = snapshotKarts(this.state, this.track);
@@ -121,9 +131,11 @@ export class TimeTrialController implements RaceLike {
       if (!finishedBefore) {
         const mask = this.bot ? botMask(this.state, 0) : this.keyboard.sample();
         this.recorded.push(mask);
-        this.prevKarts = this.currKarts;
         stepSim(this.state, [mask]);
-        this.currKarts = snapshotKarts(this.state, this.track);
+        const tmp = this.prevKarts;
+        this.prevKarts = this.currKarts;
+        this.currKarts = tmp;
+        writeKarts(this.currKarts, this.state, this.track);
         if (this.state.phase === PHASE_FINISHED) this.onFinish();
       } else {
         stepSim(this.state, [0]); // tick the clock; the world is frozen
@@ -132,9 +144,11 @@ export class TimeTrialController implements RaceLike {
       // the ghost advances in lockstep, one tick per live tick
       if (this.ghostSim && this.ghostSim.phase !== PHASE_FINISHED) {
         const gmask = this.ghostInputs[this.ghostSim.tick] ?? 0;
-        this.ghostPrev = this.ghostCurr;
         stepSim(this.ghostSim, [gmask]);
-        this.ghostCurr = snapshotKarts(this.ghostSim, this.track)[0]!;
+        const g = this.ghostPrev;
+        this.ghostPrev = this.ghostCurr;
+        this.ghostCurr = g;
+        fillKart(this.ghostCurr!, this.ghostSim.karts[0]!, this.track);
       }
     }
     this.alpha = Math.min(Math.max(elapsedTicks - this.state.tick + 1, 0), 1);
