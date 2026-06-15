@@ -23,7 +23,7 @@ import {
   wideCross,
 } from './fixed.js';
 import { sinB, cosB } from './trig.js';
-import { BTN_ACCEL, BTN_BRAKE, BTN_DRIFT, INPUT_NEUTRAL, steerOf } from './input.js';
+import { BTN_ACCEL, BTN_BRAKE, BTN_DRIFT, INPUT_NEUTRAL, steerOf, steerMagOf, STEER_MAG_MAX } from './input.js';
 import type { GameState, KartState } from './state.js';
 import { KART_RADIUS, clampWorld, type WallSeg, type TrackRuntime } from './track.js';
 
@@ -240,11 +240,21 @@ export function stepKart(st: GameState, kart: KartState, mask: number): void {
   }
 
   // --- steering ---
+  // Analog deflection: full lock (mag 15, every legacy mask) short-circuits to
+  // the literal fx(steer) so today's hashes stay byte-identical; partial levels
+  // scale it with fx/int-*/div only (all fixed.ts-sanctioned). |steer*mag| <= 15.
+  const mag = steerMagOf(mask); // 0..15
+  const steerAxis: Fx =
+    steer === 0
+      ? 0
+      : mag === STEER_MAG_MAX
+        ? fx(steer)
+        : div(fx(steer * mag), fx(STEER_MAG_MAX));
   let steerEff: Fx;
   if (kart.driftDir !== 0) {
-    steerEff = add(mul(fx(kart.driftDir), DRIFT_TURN_BASE), mul(fx(steer), DRIFT_TURN_MOD));
+    steerEff = add(mul(fx(kart.driftDir), DRIFT_TURN_BASE), mul(steerAxis, DRIFT_TURN_MOD));
   } else {
-    steerEff = fx(steer);
+    steerEff = steerAxis;
   }
   const speed = len(kart.vx, kart.vy);
   const speedFactor = clamp(div(speed, TURN_SPEED_REF), 0, FX_ONE);
