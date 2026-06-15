@@ -205,8 +205,8 @@
       <div id="perf-note" class="hidden">Performance mode — reduced resolution</div>
     </div>
 
-    <!-- floating thumb-joystick: above the HUD (5), below menus (10). Captures
-         pointers only while .active (race); TouchControls owns the listeners. -->
+    <!-- floating thumb-joystick: z-index 6, under the HUD (7) and menus (10).
+         Captures pointers only while .active (race); TouchControls owns the listeners. -->
     <div id="touch-overlay">
       <div id="touch-ring" class="hidden"></div>
       <div id="touch-knob" class="hidden"></div>

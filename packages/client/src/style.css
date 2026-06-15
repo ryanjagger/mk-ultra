@@ -268,7 +268,10 @@ input:focus { border-color: var(--accent); }
    edge-anchored readouts clear the notch / home indicator in standalone mode
    (env() is 0 in a normal browser tab, so this is a no-op there) */
 #hud {
-  position: fixed; pointer-events: none; z-index: 5; font-variant-numeric: tabular-nums;
+  /* z-index 7 keeps the HUD above the touch joystick overlay (6) so its one
+     interactive control (#hud-mute) stays tappable on touch devices; the HUD is
+     pointer-events:none, so every other touch still falls through to steer. */
+  position: fixed; pointer-events: none; z-index: 7; font-variant-numeric: tabular-nums;
   inset: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
 }
 #hud > div { position: absolute; }
@@ -325,8 +328,9 @@ input:focus { border-color: var(--accent); }
 }
 
 /* ----------------------------------------------- touch joystick overlay ---- */
-/* Above the HUD (5), below menus (10). Inert until .active so menu buttons and
-   the desktop pointer are untouched; .active grabs pointers + kills gestures. */
+/* z-index 6: under the HUD (7, so its mute control stays tappable) and menus
+   (10), over the canvas. Inert until .active so menu buttons and the desktop
+   pointer are untouched; .active grabs pointers + kills browser gestures. */
 #touch-overlay { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
 #touch-overlay.active { pointer-events: auto; touch-action: none; }
 #touch-ring, #touch-knob {
