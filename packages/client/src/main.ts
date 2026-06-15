@@ -89,6 +89,19 @@ let resultsShown = false;
 let stallSince: number | null = null;
 let debugVisible = false;
 let toastTimer = 0;
+// Show the in-race control hint only for a player's first few races, then let it
+// get out of the way (persisted per device). Replays don't count — nobody drives
+// them; both online races and solo time trials do.
+const CONTROLS_HINT_RACES = 3;
+let racesPlayed = Number(localStorage.getItem('mk-races-played')) || 0;
+function bumpRacesPlayed(): void {
+  racesPlayed += 1;
+  try {
+    localStorage.setItem('mk-races-played', String(racesPlayed));
+  } catch {
+    /* ignore storage failures (private mode / quota) */
+  }
+}
 // self-driving client (E2E/demo). Declared up front so room-entry messages can
 // tell the server this seat is automated — the server excludes it from boards.
 const botMode = new URLSearchParams(location.search).has('bot');
@@ -134,9 +147,11 @@ function syncDriveControls(): void {
   const replaying = controller instanceof ReplayController;
   const liveRace = screen === 'race' && !replaying;
   const showTouch = touchEnabled && liveRace;
-  touch.setActive(showTouch);
-  $('hud-keys').classList.toggle('hidden', replaying || showTouch);
-  $('hud-keys-touch').classList.toggle('hidden', !showTouch);
+  touch.setActive(showTouch); // the joystick itself is never gated — only the hint
+  // the control hint shows for the first few races, then fades out for good
+  const showHint = liveRace && racesPlayed <= CONTROLS_HINT_RACES;
+  $('hud-keys').classList.toggle('hidden', !(showHint && !showTouch));
+  $('hud-keys-touch').classList.toggle('hidden', !(showHint && showTouch));
 }
 
 function toast(text: string): void {
@@ -509,6 +524,7 @@ function lookOf(style: PlayerStyle, seat: number): KartLook {
 
 net.on('raceStart', (msg) => {
   ttParams = null;
+  bumpRacesPlayed();
   $('hud-best').classList.add('hidden');
   scene.setTrack(getTrack(msg.trackId)); // authoritative: server resolved 'random'
   controller = new RaceController(
@@ -662,6 +678,7 @@ function startTimeTrial(trackChoice: string, laps: number, ghostOverride?: Ghost
       ? TRACKS[Math.floor(Math.random() * TRACKS.length)]!.def.id
       : trackChoice;
   ttParams = { trackId, laps };
+  bumpRacesPlayed();
   scene.setTrack(getTrack(trackId));
   const tt = new TimeTrialController(keyboard, { trackId, laps, ghostOverride }, botMode);
   controller = tt;
