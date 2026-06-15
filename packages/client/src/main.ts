@@ -69,7 +69,7 @@ window.addEventListener('pointerdown', () => audio.unlock());
 window.addEventListener('keydown', () => audio.unlock());
 document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
 
-type Screen = 'home' | 'lobby' | 'race' | 'results' | 'leaderboard';
+type Screen = 'home' | 'lobby' | 'race' | 'results';
 let screen: Screen = 'home';
 let controller: RaceLike | null = null;
 let ttParams: { trackId: string; laps: number } | null = null;
@@ -88,7 +88,6 @@ const screens = {
   home: $('screen-home'),
   lobby: $('screen-lobby'),
   results: $('screen-results'),
-  leaderboard: $('screen-leaderboard'),
 };
 const hud = $('hud');
 const overlayDisconnect = $('overlay-disconnect');
@@ -105,7 +104,6 @@ function showScreen(next: Screen): void {
   screens.home.classList.toggle('hidden', next !== 'home');
   screens.lobby.classList.toggle('hidden', next !== 'lobby');
   screens.results.classList.toggle('hidden', next !== 'results');
-  screens.leaderboard.classList.toggle('hidden', next !== 'leaderboard');
   hud.classList.toggle('hidden', next !== 'race' && next !== 'results');
   keyboard.captureGameKeys = next === 'race';
   audio.setMusic(
@@ -113,6 +111,7 @@ function showScreen(next: Screen): void {
   );
   if (next === 'home') {
     net.send({ t: 'listRooms' });
+    loadMenuBoard(); // refresh the home leaderboard card
   }
 }
 
@@ -542,6 +541,19 @@ function renderRaceBoard(msg: Extract<ServerMsg, { t: 'leaderboard' }>): void {
   if (inMenu) myName = nameInput.value.trim();
   else if (controller) myName = controller.names[controller.you] ?? '';
   if (!inMenu) $('results-lb').classList.remove('hidden');
+
+  // home card: a "your best" summary for the selected board. We only know the
+  // top 10, so a player off the board reads as "not ranked" rather than a time.
+  if (inMenu) {
+    const mine = myName ? msg.entries.findIndex((e) => e.name === myName) : -1;
+    $('lb-best').textContent =
+      mine >= 0
+        ? `Your best: ${fmtTime(msg.entries[mine]!.timeMs / 1000)} · #${mine + 1}`
+        : msg.entries.length > 0
+          ? 'Your best: not on this board yet — race it!'
+          : '';
+  }
+
   if (msg.entries.length === 0) {
     const li = document.createElement('li');
     li.className = 'muted';
@@ -562,7 +574,7 @@ function renderRaceBoard(msg: Extract<ServerMsg, { t: 'leaderboard' }>): void {
   });
 }
 
-/** Open the menu Leaderboards screen's board for the selected track/laps. */
+/** Request the home leaderboard card's board for the selected track/laps. */
 function loadMenuBoard(): void {
   lbContext = 'menu';
   net.send({
@@ -573,13 +585,8 @@ function loadMenuBoard(): void {
   });
 }
 
-$('btn-leaderboards').addEventListener('click', () => {
-  showScreen('leaderboard');
-  loadMenuBoard();
-});
 lbTrackSel.addEventListener('change', loadMenuBoard);
 lbLapsSel.addEventListener('change', loadMenuBoard);
-$('btn-lb-back').addEventListener('click', () => showScreen('home'));
 
 net.on('leaderboard', (msg) => {
   if (msg.kind === 'race') {
@@ -950,6 +957,7 @@ net.onOpen(() => {
   overlayDisconnect.classList.add('hidden');
   net.send({ t: 'listRooms' });
   net.send({ t: 'ping', pt: Date.now() });
+  loadMenuBoard(); // the home leaderboard card's first fill (send drops pre-open)
 });
 net.onClose(() => {
   overlayDisconnect.classList.remove('hidden');

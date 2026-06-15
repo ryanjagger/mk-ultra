@@ -53,10 +53,6 @@
             </div>
           </div>
 
-          <div class="divider"></div>
-          <div class="row"><button id="btn-leaderboards" class="btn"><span class="ico" data-icon="trophy"></span>Leaderboards</button></div>
-          <p class="hero-caption muted">world records from online races</p>
-
           <p id="home-error" class="error hidden"></p>
         </div>
 
@@ -83,6 +79,22 @@
           <div class="card rooms-card">
             <h3>Public rooms</h3>
             <ul id="room-list" class="room-list"><li class="muted">No open rooms — create one!</li></ul>
+          </div>
+          <!-- online-race world records; track + laps pick which board to show -->
+          <div class="card lb-card">
+            <h3><span class="ico" data-icon="trophy"></span>Leaderboards</h3>
+            <div class="setup-grid">
+              <div class="setup-field">
+                <label class="field-label" for="lb-track">Track</label>
+                <select id="lb-track"></select>
+              </div>
+              <div class="setup-field">
+                <label class="field-label" for="lb-laps">Laps</label>
+                <select id="lb-laps"></select>
+              </div>
+            </div>
+            <p id="lb-best" class="muted"></p>
+            <ol id="lb-list" class="results-list"></ol>
           </div>
         </div>
       </div>
@@ -144,27 +156,6 @@
           <button id="btn-ready" class="btn btn-primary">Ready up</button>
           <button id="btn-start" class="btn btn-go hidden">Start race</button>
           <button id="btn-leave" class="btn btn-ghost">Leave</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="screen-leaderboard" class="screen hidden">
-      <div class="card">
-        <h2><span class="ico" data-icon="trophy"></span>Leaderboards</h2>
-        <span class="section-label">Online race records</span>
-        <div class="setup-grid">
-          <div class="setup-field">
-            <label class="field-label" for="lb-track">Track</label>
-            <select id="lb-track"></select>
-          </div>
-          <div class="setup-field">
-            <label class="field-label" for="lb-laps">Laps</label>
-            <select id="lb-laps"></select>
-          </div>
-        </div>
-        <ol id="lb-list" class="results-list"></ol>
-        <div class="row">
-          <button id="btn-lb-back" class="btn btn-ghost">Back</button>
         </div>
       </div>
     </div>
