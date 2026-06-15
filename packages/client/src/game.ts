@@ -225,8 +225,18 @@ export class RaceController implements RaceLike {
     while (this.session.frame < target && advances < maxAdvances) {
       const f = this.session.frame;
       if (f > this.lastInputFrame) this.sendInput(f, this.sampleMask());
+      const rbBefore = this.session.stats.rollbacks;
       if (!this.session.advance()) {
         this.stalled = true;
+        // advance() applies queued corrections BEFORE its stall check, so a
+        // correction can land on the very call that then returns false. The
+        // frame is frozen (no swap — same frame, corrected values), but curr
+        // must still pick up the correction or it renders stale predicted
+        // positions while session.state/HUD are corrected, until the next
+        // successful advance.
+        if (this.session.stats.rollbacks > rbBefore) {
+          writeKarts(this.currKarts, this.session.state, this.trackRt);
+        }
         this.sendInputsWhileStalled(target);
         break;
       }
@@ -239,10 +249,10 @@ export class RaceController implements RaceLike {
       writeKarts(this.currKarts, this.session.state, this.trackRt);
       advances++;
     }
-    // apply any corrections that arrived while we were paced out. advance()
-    // already runs applyCorrections() internally, so in-loop corrections are
-    // captured above; this gate only refreshes curr when THIS call did work
-    // (0 advances, or a correction queued after the last advance).
+    // apply any corrections that arrived while we were paced out (0 advances)
+    // or were queued after the last successful advance. advance() runs
+    // applyCorrections() internally, so in-loop/stall corrections are already
+    // captured above; this gate refreshes curr only when THIS call did work.
     const rb = this.session.stats.rollbacks;
     this.session.applyCorrections();
     if (this.session.stats.rollbacks > rb) {
