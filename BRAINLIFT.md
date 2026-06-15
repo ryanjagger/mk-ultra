@@ -15,6 +15,176 @@ padded one.
 
 ---
 
+## 2026-06-14
+
+### Progress
+
+- **Chase-camera yaw smoothing** (`f838670`, `fix/bot-camera-jitter`
+  ff-merged to `main` and pushed → auto-deploys). Render-only: low-pass the
+  yaw the camera is built from so the greedy `?bot`'s per-tick bang-bang
+  steering stops shimmying the whole view. Reuses the position lerp's own
+  `0.0008^dt` constant so position and orientation share one filter; the kart
+  mesh still renders at its exact zero-latency heading. Typecheck clean,
+  150 sim + 11 server tests green (no sim/shared touched).
+- **Docs split out** (staged, uncommitted): new `ARCHITECTURE.md`
+  consolidating the determinism contract, rollback model, wire protocol, track
+  system, decision record and milestone map out of the README (README trimmed
+  to a short summary + pointer); new `DEMO.md` of demo talking points (the
+  netcode war story, bug hunts, and a BrainLift section).
+
+### AI interactions that accelerated learning
+
+- **Three parallel Explore agents converged on a root cause.** For the `?bot`
+  jitter, one agent traced the bot steering, one the renderer/camera, one the
+  sim pacing — concurrently, read-only. They independently landed on the same
+  story (bang-bang steering dither + camera amplification, and *not* netcode),
+  faster and cheaper than a serial dig through the same files myself.
+- **Diagnose by reasoning about the controller, not by watching pixels.**
+  Jitter is temporal — a screenshot can't show it. Establishing from the code
+  that steering is a discrete L/R bit recomputed each tick (sign flips at the
+  gate center) and that a solo `?bot` race *can't* roll back (`players > 1`
+  guard) proved it was the bot+camera before changing anything. A screenshot
+  would have been useless here.
+- **Reuse the existing time constant instead of inventing one.** Routing the
+  new yaw low-pass through the camera's existing `0.0008^dt` means one knob to
+  tune and position/orientation stay coherent by construction — no new magic
+  number to justify.
+
+### Challenges → solutions
+
+- **"Is the `?bot` jitter a bug?" — no, and the camera was the amplifier.**
+  The chase camera derived *both* its position offset and its `lookAt` target
+  from the kart's *instantaneous* heading, and the greedy bot's heading dithers
+  ±a small angle every tick as the cross-product sign flips near a gate. The
+  dither was real but tiny; the unsmoothed `lookAt` swung the entire view. Fix:
+  low-pass only the camera yaw, leave the kart mesh exact — smooth the *view*
+  without delaying the *kart*. Render-only, so determinism gates never moved.
+  Lesson: when only the bot exhibits a "bug," suspect the test driver and the
+  thing that follows it, not the sim.
+- **Wrong deploy model, corrected by the user.** I told the user a push to
+  `main` doesn't deploy and they'd need `railway up`. Railway is
+  GitHub-connected here, so `git push origin main` *is* the deploy. Root cause:
+  I trusted the `railway up` line in README/CLAUDE.md as the only path. Fix:
+  updated project memory so future sessions treat the push as the deploy and
+  `railway up` as a separate manual fallback.
+- **`import type` can't carry a runtime value.** `scene.ts` imported
+  `import type { KartRender }`; reusing `lerpAngle` (a function) needed a value
+  import. Switched to `import { lerpAngle, type KartRender }`. Small, but a
+  clean reminder that type-only imports erase at runtime.
+
+## 2026-06-13
+
+### Progress
+
+- UI overhaul on `feat/menu-chrome-redesign` (`4df8129..37e7d08`, 7
+  commits), driven by an `/impeccable:critique` of the menu + HUD;
+  fast-forward-merged to `main` and pushed. Gates green at merge:
+  typecheck clean, 11/11 server tests, build.
+- **Chrome identity** (`4df8129`): self-hosted Anton + Saira variable
+  woff2 (no CDN), killing the three AI-slop tells the critique named —
+  gradient clip-text wordmark, glassmorphic blur cards, OS system-font.
+  Opaque panels with a gold racing-stripe edge + hard offset shadow,
+  drifting speed-streak backdrop, extruded wordmark + checkered underline.
+  Saira cascades to the HUD too, so chrome and HUD finally share one type
+  system (the unification the critique asked for).
+- **Home IA + a wire-protocol move** (`8fa3e6f`): home split into a Quick
+  Play hero / friends / solo hierarchy, profile + rooms to a side column.
+  Bigger change — room config (track/laps/visibility) pulled off the home
+  screen into the lobby, which already edited the track: added host-only
+  `setLaps`/`setPublic` messages across `shared` + `server`, modelled on
+  `setCup`/`setMode`. The `room` broadcast already carried laps/isPublic,
+  so no broadcast change. Time Trial got its own inline track/laps picker.
+- **HUD colour + motion** (`ce4ba6e`): gold reserved for "your standing";
+  BOOST moved to its own `--boost` orange (ties to the drift-charge max
+  tier); the single `pulse` keyframe — five events animating identically —
+  split into meaning: lateral shake = WRONG WAY, throb = FINAL LAP, pump =
+  BOOST, one-shot pops = NEW RECORD / LEVEL UP. Staggered menu entrance,
+  all `prefers-reduced-motion`-gated.
+- **Phosphor icons** (`6030c7a`): 20 chrome emoji → inlined Phosphor bold
+  SVGs via a registry (`icons.ts`, `applyIcons()` for static
+  `[data-icon]`, `iconHTML()` for JS), currentColor-tinted, no font load.
+  Kept colourful emoji for game items, balloons, brand and `<select>`
+  options.
+- **Clarity passes** (`c488fad`, `4ac504a`, `37e7d08`): every play action
+  is now button + one-line caption; an "or" divider forks create/join; the
+  code field shows a sample-code placeholder (`4F2K`). Lobby rebuilt as a
+  setup hub — a big copyable room code as the headline, a labelled 2×2
+  race-setup grid (Track/Laps/Mode/Format), a "Players · N/4" header.
+  Dropped "rollback" from the menu tagline.
+- **Escape-to-menu** (`f1a9a94`, fast-forward-merged to `main` and pushed):
+  Escape returns to the home menu from lobby / race / results.
+  Mid-race (incl. solo time trials) it raises a confirm overlay first so a
+  stray Escape doesn't drop you — and in multiplayer your peers — out of the
+  race; lobby/results leave immediately, replay's Escape (back to results)
+  is untouched. Reuses the existing leave-button teardown (`controller =
+  null` + `setupIdleKarts` + `leaveRoom`) rather than inventing one;
+  typecheck clean.
+
+### AI interactions that accelerated learning
+
+- **A critique became the roadmap.** `/impeccable:critique` returned a
+  split decision — HUD already good, menus textbook AI-slop — which turned
+  a vague "make it nicer" into a ranked punch-list (chrome / IA / font /
+  gold / motion / emoji) worked top-down over the session.
+- **Force-show hidden UI to verify it.** The HUD and results only appear
+  mid-race; `agent-browser eval` to strip `.hidden` and inject sample
+  values (position, BOOST, FINAL LAP, a fake record) let me screenshot and
+  check colour/motion in one shot instead of driving a full race each time.
+  A 2× viewport made type and icons legible in captures.
+- **Verify the protocol through its own rebroadcast.** Proved the new
+  `setLaps`/`setPublic` end-to-end by dispatching change events and reading
+  the values the server echoed back (`laps=5 public=true`) — no second
+  client; the rebroadcast is the assertion.
+- **Self-host instead of CDN-ing.** Pulled Google Fonts' variable woff2 (3
+  files) and Phosphor core SVGs (unpkg) directly and bundled/inlined them,
+  matching the project's no-runtime-CDN, deterministic-offline ethos rather
+  than adding a font `<link>` or icon-font dependency.
+- **Time wasted, logged.** zsh doesn't word-split unquoted `$VARS`, so a
+  `for ic in $ICONS` batch curl fetched one file named the whole string
+  (literal list fixed it); and the agent-browser daemon wedged (`os error
+  35`) after I stacked screenshot calls behind a `pnpm start &` that held
+  the shell open — kill + reopen fixed it. Don't chain CLI calls after a
+  `&` long-runner in one Bash invocation.
+- **Map the state machine before editing it.** A read-only Explore subagent
+  traced the screen flow, the per-screen teardown each leave-button already
+  runs, and where keydown is handled — so the new Escape path could *mirror*
+  the established teardown contract instead of being reverse-engineered
+  edit-by-edit. One investigation pass up front, then a single-edit feature.
+
+### Challenges → solutions
+
+- **Splitting interleaved changes into separate commits without
+  `git add -p`.** Interactive staging is blocked here, and two features
+  lived in different regions of the same `style.css`/`index.html`. Fix:
+  Edit-revert the smaller block, commit the larger feature, restore the
+  block, commit it — a deterministic split with no partial staging. Used
+  twice (the `.ico` CSS block; the tagline word).
+- **`<option>` can't hold an SVG.** The emoji→Phosphor sweep dead-ended at
+  the `<select>` dropdowns — option elements render text only. Left those
+  as emoji (game/brand marks anyway: 🏁 🎈 🎲) and documented why, instead
+  of forcing an icon-font into options.
+- **Two cascade gotchas restructuring the lobby code.** The room-code chip
+  used `font: inherit`, so switching the card heading to Anton rendered the
+  code in a display face — pinned it to Saira. And wrapping the code as
+  `text span + copy icon` meant `renderLobby`'s `textContent` would wipe
+  the icon; moved the text to a `lobby-code-text` child. The copy handler
+  reads `lastRoom.code` (source of truth), so it stayed correct throughout.
+- **"Changes not showing on :8080" was browser cache, not a stale build.**
+  Confirmed by curling the *served* HTML + asset hashes and matching them
+  to disk (the server reads `dist` fresh per request) — the open tab had
+  cached the old `index.html`. Hard refresh, not a rebuild. Diagnosed by
+  comparison, not guesswork.
+- **A quit confirm can't be a `confirm()` in a rollback game.** Native
+  `confirm()` blocks the JS main thread — including the Web Worker heartbeat
+  that keeps the sim advancing when RAF stalls — so every peer would freeze
+  at the prediction cap until the dialog is dismissed. Root cause: rollback
+  has no pause; the sim must keep ticking or look-ahead inputs stop flowing.
+  Fix: a DOM overlay (`#overlay-quit`) that leaves the RAF/heartbeat loop
+  running, so the race keeps simulating behind the prompt. Bonus gotcha: a
+  focused `<select>` already uses Escape to close its own popup, so the quit
+  handler guards on `INPUT`/`SELECT` targets — the same check `keyboard.ts`
+  uses for game keys.
+
 ## 2026-06-12
 
 ### Progress
