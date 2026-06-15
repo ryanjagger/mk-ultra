@@ -21,6 +21,7 @@ import { RANDOM_TRACK, type ServerMsg, type PlayerStyle } from '@mk/shared';
 import { Net } from './net.js';
 import { ClockSync } from './clock.js';
 import { Keyboard } from './keyboard.js';
+import { TouchControls } from './touch.js';
 import { RaceController, type RaceLike } from './game.js';
 import { TimeTrialController } from './timetrial.js';
 import { TT_SEED, type GhostRecord } from './ghosts.js';
@@ -52,6 +53,14 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
 const net = new Net();
 const clock = new ClockSync();
 const keyboard = new Keyboard();
+// Floating thumb-joystick. Auto-enabled on coarse pointers (phones/tablets);
+// `?touch` forces it on so a desktop mouse can drive it for testing. Keyboard
+// stays live regardless, so a touchscreen laptop loses nothing.
+const touch = new TouchControls();
+const touchEnabled =
+  new URLSearchParams(location.search).has('touch') ||
+  (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches);
+keyboard.touchSource = touch; // OR-merged into keyboard.sample(); inert until active
 const scene = new GameScene($<HTMLCanvasElement>('game-canvas'));
 // debug hook (read-only by convention), alongside the per-race __mk.controller
 (window as { __mkScene?: unknown }).__mkScene = scene;
@@ -106,6 +115,7 @@ function showScreen(next: Screen): void {
   screens.results.classList.toggle('hidden', next !== 'results');
   hud.classList.toggle('hidden', next !== 'race' && next !== 'results');
   keyboard.captureGameKeys = next === 'race';
+  syncDriveControls();
   audio.setMusic(
     next === 'race' ? RACE_MUSIC[raceMusicIdx++ % RACE_MUSIC.length]! : MENU_MUSIC,
   );
@@ -113,6 +123,20 @@ function showScreen(next: Screen): void {
     net.send({ t: 'listRooms' });
     loadMenuBoard(); // refresh the home leaderboard card
   }
+}
+
+/**
+ * Keep the touch joystick + control legend in sync with the current screen.
+ * Active only while the local player is actually driving — not in menus (which
+ * need native DOM taps) and not during a replay (nobody drives it).
+ */
+function syncDriveControls(): void {
+  const replaying = controller instanceof ReplayController;
+  const liveRace = screen === 'race' && !replaying;
+  const showTouch = touchEnabled && liveRace;
+  touch.setActive(showTouch);
+  $('hud-keys').classList.toggle('hidden', replaying || showTouch);
+  $('hud-keys-touch').classList.toggle('hidden', !showTouch);
 }
 
 function toast(text: string): void {
@@ -688,14 +712,13 @@ function startReplay(data: ReplayData): void {
   $('hud-pos-of').textContent = `/${data.players.length}`;
   $('hud-best').classList.add('hidden');
   $('hud-replay').classList.remove('hidden');
-  $('hud-keys').classList.add('hidden'); // nobody is driving a replay
+  // #hud-keys / touch legend are handled by syncDriveControls (nobody drives a replay)
   showScreen('race');
 }
 
 function exitReplay(): void {
   if (!(controller instanceof ReplayController)) return;
   $('hud-replay').classList.add('hidden');
-  $('hud-keys').classList.remove('hidden');
   controller = finishedRace;
   finishedRace = null;
   (window as { __mk?: unknown }).__mk = { controller };

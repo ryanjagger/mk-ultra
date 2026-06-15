@@ -34,9 +34,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); }
+/* overscroll-behavior kills pull-to-refresh / rubber-banding during play */
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--text); }
 
-#game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+/* the 3D view never pans/zooms under a stray touch — the joystick owns gestures */
+#game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
 .screen {
   position: fixed; inset: 0; display: flex; flex-direction: column;
@@ -292,6 +294,43 @@ input:focus { border-color: var(--accent); }
   border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 5px;
   padding: 0 5px; font-size: 11px; font-weight: 800;
 }
+/* touch legend reuses the keyboard-legend chrome */
+#hud-keys-touch {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; gap: 14px; font-size: 12px; color: var(--muted); white-space: nowrap;
+  background: rgba(15, 19, 30, 0.55); border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px; padding: 5px 12px;
+}
+#hud-keys-touch b {
+  color: var(--text); background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 5px;
+  padding: 0 5px; font-size: 11px; font-weight: 800;
+}
+
+/* ----------------------------------------------- touch joystick overlay ---- */
+/* Above the HUD (5), below menus (10). Inert until .active so menu buttons and
+   the desktop pointer are untouched; .active grabs pointers + kills gestures. */
+#touch-overlay { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+#touch-overlay.active { pointer-events: auto; touch-action: none; }
+#touch-ring, #touch-knob {
+  position: absolute; left: 0; top: 0; border-radius: 50%;
+  pointer-events: none; will-change: transform;
+}
+/* the floating anchor ring where the thumb first landed */
+#touch-ring {
+  width: 116px; height: 116px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: radial-gradient(circle, rgba(255, 210, 63, 0.10), rgba(255, 255, 255, 0.03));
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+}
+/* the knob that tracks the thumb */
+#touch-knob {
+  width: 56px; height: 56px;
+  background: rgba(255, 210, 63, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+}
+#touch-ring.hidden, #touch-knob.hidden { display: none; }
 #hud-finallap {
   left: 50%; top: 34%; transform: translateX(-50%);
   font-size: 44px; font-weight: 900; font-style: italic; color: var(--accent);
@@ -386,4 +425,24 @@ input:focus { border-color: var(--accent); }
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 50;
   background: rgba(20, 25, 38, 0.95); border: 1px solid var(--panel-border); color: var(--text);
   padding: 10px 18px; border-radius: 12px; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* ----------------------------------------------------------- phone fit ---- */
+/* Light responsive pass: the menu/lobby/results cards are DOM buttons that
+   already work with touch — they just need to stop overflowing a phone. */
+@media (max-width: 640px) {
+  .screen { padding: 14px; gap: 12px; justify-content: flex-start; overflow-y: auto; }
+  .title { font-size: clamp(46px, 18vw, 92px); }
+  .tagline { font-size: 13px; }
+  .panel-row { flex-direction: column; align-items: stretch; gap: 12px; width: 100%; }
+  .side-col { width: 100%; }
+  /* cards stretch to the viewport instead of holding a desktop min-width */
+  .card, .race-card, .results-card { min-width: 0; max-width: none; width: 100%; padding: 16px; }
+  .setup-grid { grid-template-columns: 1fr 1fr; }
+  /* the in-race legends can wrap on a narrow screen rather than clip */
+  #hud-keys, #hud-keys-touch { white-space: normal; flex-wrap: wrap; justify-content: center; max-width: 92vw; }
+  /* keep the speed/position readouts from crowding a small viewport */
+  #hud-pos-num { font-size: 48px; }
+  #hud-speed { font-size: 34px; }
+  #hud-minimap { width: 120px; height: 120px; right: 14px; bottom: 76px; }
 }
