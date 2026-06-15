@@ -42,7 +42,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: non
 
 .screen {
   position: fixed; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 18px; z-index: 10; overflow: hidden;
+  align-items: center; gap: 18px; z-index: 10;
+  /* centre when the cards fit; once they're taller than the viewport (e.g. a
+     landscape phone) top-align and scroll instead of clipping the overflow.
+     `safe center` falls back to start-alignment so the top stays reachable;
+     overflow-x: clip keeps the decorative ::before from adding a side-scroll. */
+  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto; overflow-x: clip;
   background:
     radial-gradient(ellipse at 50% -12%, rgba(255, 210, 63, 0.10), transparent 52%),
     radial-gradient(ellipse at 50% 32%, rgba(12, 16, 28, 0.28), rgba(6, 8, 14, 0.9));
@@ -54,7 +61,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: non
 /* drifting speed-streaks: motion behind the chrome (sits under the cards,
    over whatever the renderer is showing). Disabled for reduced-motion. */
 .screen::before {
-  content: ''; position: absolute; inset: -30%; z-index: -1; pointer-events: none;
+  /* fixed (not absolute) so it can't contribute to the screen's scrollable
+     height and stays put while a short-viewport menu scrolls */
+  content: ''; position: fixed; inset: -30%; z-index: -1; pointer-events: none;
   background-image: repeating-linear-gradient(
     114deg, transparent 0 44px,
     rgba(255, 255, 255, 0.024) 44px 46px, transparent 46px 90px);
@@ -428,10 +437,11 @@ input:focus { border-color: var(--accent); }
 }
 
 /* ----------------------------------------------------------- phone fit ---- */
-/* Light responsive pass: the menu/lobby/results cards are DOM buttons that
-   already work with touch — they just need to stop overflowing a phone. */
+/* Narrow viewports (portrait phones): stack the columns and let the cards fill
+   the width. Scrolling/centering is handled by the base .screen rule, so it
+   works in landscape too — this block is layout only. */
 @media (max-width: 640px) {
-  .screen { padding: 14px; gap: 12px; justify-content: flex-start; overflow-y: auto; }
+  .screen { padding: 14px; gap: 12px; }
   .title { font-size: clamp(46px, 18vw, 92px); }
   .tagline { font-size: 13px; }
   .panel-row { flex-direction: column; align-items: stretch; gap: 12px; width: 100%; }
