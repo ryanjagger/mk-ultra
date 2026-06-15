@@ -23,6 +23,7 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.map': 'application/json',
+  '.webmanifest': 'application/manifest+json',
 };
 
 function hereDir(): string {

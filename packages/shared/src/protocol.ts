@@ -23,7 +23,7 @@ export const INPUT_REDUNDANCY = 10;
 const name = z.string().min(1).max(MAX_NAME_LEN);
 const roomCode = z.string().length(ROOM_CODE_LEN);
 const frame = z.number().int().min(0).max(MAX_FRAME);
-const inputMask = z.number().int().min(0).max(63); // @mk/sim INPUT_MASK_ALL
+const inputMask = z.number().int().min(0).max(1023); // @mk/sim INPUT_MASK_ALL (incl. 4-bit steer magnitude)
 /** Redundant masks for the frames before `f`, newest first. */
 const redundant = z.array(inputMask).max(INPUT_REDUNDANCY);
 const hash32 = z.number().int().min(0).max(0xffffffff);

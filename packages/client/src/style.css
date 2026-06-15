@@ -34,13 +34,24 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); }
+/* overscroll-behavior kills pull-to-refresh / rubber-banding during play */
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--text); }
 
-#game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+/* the 3D view never pans/zooms under a stray touch — the joystick owns gestures */
+#game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
 .screen {
   position: fixed; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 18px; z-index: 10; overflow: hidden;
+  align-items: center; gap: 18px; z-index: 10;
+  /* centre when the cards fit; once they're taller than the viewport (e.g. a
+     landscape phone) top-align and scroll instead of clipping the overflow.
+     `safe center` falls back to start-alignment so the top stays reachable;
+     overflow-x: clip keeps the decorative ::before from adding a side-scroll. */
+  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto; overflow-x: clip;
+  /* keep menu cards out from under the notch / home indicator in standalone mode */
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
   background:
     radial-gradient(ellipse at 50% -12%, rgba(255, 210, 63, 0.10), transparent 52%),
     radial-gradient(ellipse at 50% 32%, rgba(12, 16, 28, 0.28), rgba(6, 8, 14, 0.9));
@@ -52,7 +63,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 /* drifting speed-streaks: motion behind the chrome (sits under the cards,
    over whatever the renderer is showing). Disabled for reduced-motion. */
 .screen::before {
-  content: ''; position: absolute; inset: -30%; z-index: -1; pointer-events: none;
+  /* fixed (not absolute) so it can't contribute to the screen's scrollable
+     height and stays put while a short-viewport menu scrolls */
+  content: ''; position: fixed; inset: -30%; z-index: -1; pointer-events: none;
   background-image: repeating-linear-gradient(
     114deg, transparent 0 44px,
     rgba(255, 255, 255, 0.024) 44px 46px, transparent 46px 90px);
@@ -251,7 +264,16 @@ input:focus { border-color: var(--accent); }
 .player-list .lvl { font-size: 11px; font-weight: 800; color: var(--muted); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 1px 6px; }
 
 /* ------------------------------------------------------------- HUD ---- */
-#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-variant-numeric: tabular-nums; }
+/* inset the whole HUD coordinate space by the device safe areas so the
+   edge-anchored readouts clear the notch / home indicator in standalone mode
+   (env() is 0 in a normal browser tab, so this is a no-op there) */
+#hud {
+  /* z-index 7 keeps the HUD above the touch joystick overlay (6) so its one
+     interactive control (#hud-mute) stays tappable on touch devices; the HUD is
+     pointer-events:none, so every other touch still falls through to steer. */
+  position: fixed; pointer-events: none; z-index: 7; font-variant-numeric: tabular-nums;
+  inset: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
 #hud > div { position: absolute; }
 #hud-pos { left: 26px; top: 18px; font-weight: 900; font-style: italic; text-shadow: 0 3px 14px rgba(0,0,0,0.7); }
 #hud-pos-num { font-size: 64px; color: var(--accent); }
@@ -292,6 +314,44 @@ input:focus { border-color: var(--accent); }
   border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 5px;
   padding: 0 5px; font-size: 11px; font-weight: 800;
 }
+/* touch legend reuses the keyboard-legend chrome */
+#hud-keys-touch {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; gap: 14px; font-size: 12px; color: var(--muted); white-space: nowrap;
+  background: rgba(15, 19, 30, 0.55); border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px; padding: 5px 12px;
+}
+#hud-keys-touch b {
+  color: var(--text); background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 5px;
+  padding: 0 5px; font-size: 11px; font-weight: 800;
+}
+
+/* ----------------------------------------------- touch joystick overlay ---- */
+/* z-index 6: under the HUD (7, so its mute control stays tappable) and menus
+   (10), over the canvas. Inert until .active so menu buttons and the desktop
+   pointer are untouched; .active grabs pointers + kills browser gestures. */
+#touch-overlay { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+#touch-overlay.active { pointer-events: auto; touch-action: none; }
+#touch-ring, #touch-knob {
+  position: absolute; left: 0; top: 0; border-radius: 50%;
+  pointer-events: none; will-change: transform;
+}
+/* the floating anchor ring where the thumb first landed */
+#touch-ring {
+  width: 116px; height: 116px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: radial-gradient(circle, rgba(255, 210, 63, 0.10), rgba(255, 255, 255, 0.03));
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+}
+/* the knob that tracks the thumb */
+#touch-knob {
+  width: 56px; height: 56px;
+  background: rgba(255, 210, 63, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+}
+#touch-ring.hidden, #touch-knob.hidden { display: none; }
 #hud-finallap {
   left: 50%; top: 34%; transform: translateX(-50%);
   font-size: 44px; font-weight: 900; font-style: italic; color: var(--accent);
@@ -381,9 +441,38 @@ input:focus { border-color: var(--accent); }
 .results-list li { display: flex; align-items: center; gap: 12px; font-size: 18px; padding: 10px 14px; background: rgba(255,255,255,0.05); border-radius: 10px; list-style-position: inside; }
 .results-list li::marker { font-weight: 900; color: var(--accent); }
 .results-list .rtime { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* empty-state note: drop the boxed-entry chrome so it reads like the small
+   muted placeholders in the other cards (e.g. "No open rooms — create one!") */
+.results-list li.empty { display: block; font-size: 14px; padding: 0; background: none; border-radius: 0; list-style: none; }
 
 #toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 50;
   background: rgba(20, 25, 38, 0.95); border: 1px solid var(--panel-border); color: var(--text);
   padding: 10px 18px; border-radius: 12px; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* ----------------------------------------------------------- phone fit ---- */
+/* Narrow viewports (portrait phones): stack the columns and let the cards fill
+   the width. Scrolling/centering is handled by the base .screen rule, so it
+   works in landscape too — this block is layout only. */
+@media (max-width: 640px) {
+  /* 14px breathing room, but never less than the device safe area */
+  .screen {
+    gap: 12px;
+    padding: max(14px, env(safe-area-inset-top, 0)) max(14px, env(safe-area-inset-right, 0))
+             max(14px, env(safe-area-inset-bottom, 0)) max(14px, env(safe-area-inset-left, 0));
+  }
+  .title { font-size: clamp(46px, 18vw, 92px); }
+  .tagline { font-size: 13px; }
+  .panel-row { flex-direction: column; align-items: stretch; gap: 12px; width: 100%; }
+  .side-col { width: 100%; }
+  /* cards stretch to the viewport instead of holding a desktop min-width */
+  .card, .race-card, .results-card { min-width: 0; max-width: none; width: 100%; padding: 16px; }
+  .setup-grid { grid-template-columns: 1fr 1fr; }
+  /* the in-race legends can wrap on a narrow screen rather than clip */
+  #hud-keys, #hud-keys-touch { white-space: normal; flex-wrap: wrap; justify-content: center; max-width: 92vw; }
+  /* keep the speed/position readouts from crowding a small viewport */
+  #hud-pos-num { font-size: 48px; }
+  #hud-speed { font-size: 34px; }
+  #hud-minimap { width: 120px; height: 120px; right: 14px; bottom: 76px; }
 }

@@ -30,6 +30,8 @@ export class Keyboard {
   captureGameKeys = false;
   /** rearview camera while held (render-only, never on the wire) */
   lookBack = false;
+  /** optional mobile touch source, OR-merged like the gamepad (see touch.ts) */
+  touchSource: { sample(): number } | null = null;
   onDebugToggle: (() => void) | null = null;
   onMuteToggle: (() => void) | null = null;
 
@@ -77,7 +79,7 @@ export class Keyboard {
   }
 
   sample(): number {
-    return this.mask | this.padMask();
+    return this.mask | this.padMask() | (this.touchSource?.sample() ?? 0);
   }
 
   /** Combined keyboard + gamepad look-behind (refreshes the pad poll). */
