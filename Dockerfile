@@ -21,9 +21,8 @@ ENV NODE_ENV=production
 COPY --from=build /app/packages/server/dist/index.cjs ./server.cjs
 COPY --from=build /app/packages/client/dist ./public
 ENV CLIENT_DIST=/app/public
-# leaderboards persist to DATA_DIR; Railway mounts a durable volume here in
-# production, and this gives local `docker run` the same path (anon volume)
+# leaderboards persist to DATA_DIR; in production a Railway-managed volume is
+# mounted at /data (Railway rejects a Dockerfile VOLUME — it owns the mount).
 ENV DATA_DIR=/data
-VOLUME ["/data"]
 EXPOSE 8080
 CMD ["node", "server.cjs"]
