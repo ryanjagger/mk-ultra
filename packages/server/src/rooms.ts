@@ -29,6 +29,8 @@ export interface PlayerCtx {
   name: string;
   style: PlayerStyle;
   room: Room | null;
+  /** self-declared `?bot` client — its seats never reach leaderboards */
+  automated?: boolean;
   /** last accepted leaderboard submission (rate limiting) */
   lastSubmitMs?: number;
 }
@@ -40,6 +42,8 @@ interface Seat {
   ready: boolean;
   connected: boolean;
   bot: boolean;
+  /** occupant is a self-driving `?bot` client — excluded from leaderboards */
+  automated: boolean;
   /** Grand Prix points; travels with the seat across races */
   points: number;
 }
@@ -132,12 +136,14 @@ export class GameLobby {
         this.leaveRoom(ctx);
         ctx.name = msg.name;
         ctx.style = msg.style ?? DEFAULT_STYLE;
+        ctx.automated = msg.bot ?? false;
         this.createRoom(ctx, msg.isPublic, msg.laps, sanitizeTrack(msg.track));
         return;
       case 'joinRoom': {
         this.leaveRoom(ctx);
         ctx.name = msg.name;
         ctx.style = msg.style ?? DEFAULT_STYLE;
+        ctx.automated = msg.bot ?? false;
         const room = this.rooms.get(msg.code.toUpperCase());
         if (!room) {
           ctx.conn.send({ t: 'error', message: 'Room not found' });
@@ -150,6 +156,7 @@ export class GameLobby {
         this.leaveRoom(ctx);
         ctx.name = msg.name;
         ctx.style = msg.style ?? DEFAULT_STYLE;
+        ctx.automated = msg.bot ?? false;
         let target: Room | null = null;
         for (const room of this.rooms.values()) {
           if (room.isPublic && room.state === 'lobby' && room.seats.length < MAX_PLAYERS) {
@@ -248,6 +255,7 @@ export class GameLobby {
           ready: true,
           connected: true,
           bot: true,
+          automated: false, // server CPU; already excluded via `bot`
           points: 0,
         });
         this.broadcastRoom(room);
@@ -313,14 +321,16 @@ export class GameLobby {
           t: 'leaderboard',
           trackId: msg.trackId,
           laps: msg.laps,
-          entries: this.leaderboards.top(msg.trackId, msg.laps),
+          entries: this.leaderboards.top(msg.trackId, msg.laps, msg.kind),
+          kind: msg.kind,
         });
         return;
       }
       case 'getGhost': {
         if (!this.leaderboards) return;
         const entry = this.leaderboards.ghost(msg.trackId, msg.laps, msg.rank);
-        if (!entry) {
+        if (!entry || !entry.rle) {
+          // race entries carry no ghost recording; only TT boards have one
           ctx.conn.send({ t: 'error', message: 'No ghost at that rank' });
           return;
         }
@@ -373,6 +383,7 @@ export class GameLobby {
           ready: false,
           connected: true,
           bot: false,
+          automated: ctx.automated ?? false,
           points: 0,
         },
       ],
@@ -403,6 +414,7 @@ export class GameLobby {
       ready: false,
       connected: true,
       bot: false,
+      automated: ctx.automated ?? false,
       points: 0,
     });
     ctx.room = room;
@@ -506,7 +518,16 @@ export class GameLobby {
   }
 
   private endRace(room: Room, placements?: readonly number[]): void {
-    if (room.race) room.lastReplay = this.buildReplay(room, room.race);
+    if (room.race) {
+      room.lastReplay = this.buildReplay(room, room.race);
+      // record the race off the hot relay path: re-simulate the canonical
+      // replay and store each human's verified finish time (no client trust).
+      // seats align with kart indices here — seats are filtered only below.
+      this.leaderboards?.recordRace(
+        room.lastReplay,
+        room.seats.map((s) => s.automated),
+      );
+    }
     // cup scoring: first reporter's deterministic placements stand
     if (room.cupRaces > 0 && placements) {
       const seen = new Set<number>();

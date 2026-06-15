@@ -80,6 +80,9 @@ let resultsShown = false;
 let stallSince: number | null = null;
 let debugVisible = false;
 let toastTimer = 0;
+// self-driving client (E2E/demo). Declared up front so room-entry messages can
+// tell the server this seat is automated — the server excludes it from boards.
+const botMode = new URLSearchParams(location.search).has('bot');
 
 const screens = {
   home: $('screen-home'),
@@ -108,6 +111,7 @@ function showScreen(next: Screen): void {
   );
   if (next === 'home') {
     net.send({ t: 'listRooms' });
+    loadMenuBoard(); // refresh the home leaderboard card
   }
 }
 
@@ -147,6 +151,24 @@ const ttTrackSel = $<HTMLSelectElement>('tt-track');
 const lobbyTrackSel = $<HTMLSelectElement>('lobby-track');
 fillTrackSelect(ttTrackSel);
 fillTrackSelect(lobbyTrackSel);
+
+// Leaderboards screen: concrete tracks only (a board is per real track, never
+// 'random'), and laps 1–9 defaulting to 3.
+const lbTrackSel = $<HTMLSelectElement>('lb-track');
+const lbLapsSel = $<HTMLSelectElement>('lb-laps');
+for (const t of TRACKS) {
+  const opt = document.createElement('option');
+  opt.value = t.def.id;
+  opt.textContent = t.def.name;
+  lbTrackSel.appendChild(opt);
+}
+for (let n = 1; n <= 9; n++) {
+  const opt = document.createElement('option');
+  opt.value = String(n);
+  opt.textContent = `${n} lap${n === 1 ? '' : 's'}`;
+  if (n === 3) opt.selected = true;
+  lbLapsSel.appendChild(opt);
+}
 
 /** Show a track as the menu backdrop (parks demo karts on its grid). */
 function showBackdrop(trackChoice: string): void {
@@ -243,7 +265,7 @@ $('btn-garage').addEventListener('click', () => {
 renderDriver();
 
 $('btn-quick').addEventListener('click', () =>
-  net.send({ t: 'quickPlay', name: playerName(), style: myStyle() }),
+  net.send({ t: 'quickPlay', name: playerName(), style: myStyle(), bot: botMode }),
 );
 $('btn-create').addEventListener('click', () =>
   // private by default; track / laps / "list publicly" are set in the lobby
@@ -254,6 +276,7 @@ $('btn-create').addEventListener('click', () =>
     laps: 3,
     track: RANDOM_TRACK,
     style: myStyle(),
+    bot: botMode,
   }),
 );
 const joinCode = $<HTMLInputElement>('join-code');
@@ -263,7 +286,7 @@ const tryJoin = () => {
     homeError('Room codes are 4 characters');
     return;
   }
-  net.send({ t: 'joinRoom', name: playerName(), code, style: myStyle() });
+  net.send({ t: 'joinRoom', name: playerName(), code, style: myStyle(), bot: botMode });
 };
 $('btn-join').addEventListener('click', tryJoin);
 joinCode.addEventListener('keydown', (e) => {
@@ -291,7 +314,7 @@ net.on('roomList', (msg) => {
     btn.className = 'btn';
     btn.textContent = `Join ${room.code}`;
     btn.addEventListener('click', () =>
-      net.send({ t: 'joinRoom', name: playerName(), code: room.code, style: myStyle() }),
+      net.send({ t: 'joinRoom', name: playerName(), code: room.code, style: myStyle(), bot: botMode }),
     );
     li.append(label, btn);
     ul.appendChild(li);
@@ -451,7 +474,6 @@ $('lobby-code').addEventListener('click', () => {
 
 // -------------------------------------------------------------- race ----
 
-const botMode = new URLSearchParams(location.search).has('bot');
 let feats: FeatTracker | null = null;
 let raceAward: RaceAward | null = null;
 
@@ -507,8 +529,71 @@ const netRace = (): RaceController | null =>
 /** name shown over a downloaded rival ghost (set before startTimeTrial) */
 let rivalGhostName: string | null = null;
 
+/** which screen requested the in-flight race board, so the reply lands right */
+let lbContext: 'results' | 'menu' | null = null;
+
+/** Render an online-race board into the results panel or the menu screen. */
+function renderRaceBoard(msg: Extract<ServerMsg, { t: 'leaderboard' }>): void {
+  const inMenu = lbContext === 'menu';
+  const ol = $(inMenu ? 'lb-list' : 'results-lb-list');
+  ol.innerHTML = '';
+  let myName = '';
+  if (inMenu) myName = nameInput.value.trim();
+  else if (controller) myName = controller.names[controller.you] ?? '';
+  if (!inMenu) $('results-lb').classList.remove('hidden');
+
+  // home card: a "your best" summary for the selected board. We only know the
+  // top 10, so a player off the board reads as "not ranked" rather than a time.
+  if (inMenu) {
+    const mine = myName ? msg.entries.findIndex((e) => e.name === myName) : -1;
+    $('lb-best').textContent =
+      mine >= 0
+        ? `Your best: ${fmtTime(msg.entries[mine]!.timeMs / 1000)} · #${mine + 1}`
+        : msg.entries.length > 0
+          ? 'Your best: not on this board yet — race it!'
+          : '';
+  }
+
+  if (msg.entries.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'muted';
+    li.style.listStyle = 'none';
+    li.textContent = 'No times yet — finish a race here to set one!';
+    ol.appendChild(li);
+    return;
+  }
+  msg.entries.forEach((e) => {
+    const li = document.createElement('li');
+    const nm = document.createElement('span');
+    nm.textContent = `${e.name}${myName && e.name === myName ? ' (you)' : ''}`;
+    const time = document.createElement('span');
+    time.className = 'rtime';
+    time.textContent = fmtTime(e.timeMs / 1000);
+    li.append(nm, time);
+    ol.appendChild(li);
+  });
+}
+
+/** Request the home leaderboard card's board for the selected track/laps. */
+function loadMenuBoard(): void {
+  lbContext = 'menu';
+  net.send({
+    t: 'getLeaderboard',
+    trackId: lbTrackSel.value,
+    laps: Number(lbLapsSel.value),
+    kind: 'race',
+  });
+}
+
+lbTrackSel.addEventListener('change', loadMenuBoard);
+lbLapsSel.addEventListener('change', loadMenuBoard);
+
 net.on('leaderboard', (msg) => {
-  // only decorate the results screen for the matching time trial
+  if (msg.kind === 'race') {
+    renderRaceBoard(msg);
+    return;
+  }
+  // time trial: only decorate the results screen for the matching run
   const tt = controller instanceof TimeTrialController ? controller : null;
   if (!tt || tt.trackId !== msg.trackId || tt.laps !== msg.laps) return;
   const box = $('tt-lb');
@@ -777,6 +862,19 @@ function showResults(): void {
     }
   }
 
+  // online race: fetch + show the persistent race board for this track/laps
+  // (the server recorded it from its own replay; bot tabs don't pollute boards)
+  $('results-lb').classList.add('hidden');
+  if (controller instanceof RaceController && !botMode) {
+    lbContext = 'results';
+    net.send({
+      t: 'getLeaderboard',
+      trackId: controller.state.track.def.id,
+      laps: controller.state.cfg.lapCount,
+      kind: 'race',
+    });
+  }
+
   if (feats && !raceAward && controller instanceof RaceController) {
     raceAward = awardRace(controller, feats);
     feats = null;
@@ -859,6 +957,7 @@ net.onOpen(() => {
   overlayDisconnect.classList.add('hidden');
   net.send({ t: 'listRooms' });
   net.send({ t: 'ping', pt: Date.now() });
+  loadMenuBoard(); // the home leaderboard card's first fill (send drops pre-open)
 });
 net.onClose(() => {
   overlayDisconnect.classList.remove('hidden');

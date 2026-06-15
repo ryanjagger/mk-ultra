@@ -80,6 +80,22 @@
             <h3>Public rooms</h3>
             <ul id="room-list" class="room-list"><li class="muted">No open rooms — create one!</li></ul>
           </div>
+          <!-- online-race world records; track + laps pick which board to show -->
+          <div class="card lb-card">
+            <h3><span class="ico" data-icon="trophy"></span>Leaderboards</h3>
+            <div class="setup-grid">
+              <div class="setup-field">
+                <label class="field-label" for="lb-track">Track</label>
+                <select id="lb-track"></select>
+              </div>
+              <div class="setup-field">
+                <label class="field-label" for="lb-laps">Laps</label>
+                <select id="lb-laps"></select>
+              </div>
+            </div>
+            <p id="lb-best" class="muted"></p>
+            <ol id="lb-list" class="results-list"></ol>
+          </div>
         </div>
       </div>
       <p class="help">drive: <b>WASD</b>/<b>arrows</b> · drift: <b>space</b> · use item: <b>E</b> · look back: <b>R</b> · hold a drift to charge a boost</p>
@@ -196,6 +212,10 @@
           </div>
           <div id="xp-levelup" class="hidden"><span class="ico" data-icon="arrow-fat-up"></span>LEVEL UP!</div>
           <ul id="xp-unlocks"></ul>
+        </div>
+        <div id="results-lb" class="hidden">
+          <h3><span class="ico" data-icon="globe"></span>Race leaderboard</h3>
+          <ol id="results-lb-list" class="results-list"></ol>
         </div>
         <div class="row">
           <button id="btn-back-lobby" class="btn btn-primary">Back to lobby</button>
