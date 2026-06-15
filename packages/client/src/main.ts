@@ -596,8 +596,7 @@ function renderRaceBoard(msg: Extract<ServerMsg, { t: 'leaderboard' }>): void {
 
   if (msg.entries.length === 0) {
     const li = document.createElement('li');
-    li.className = 'muted';
-    li.style.listStyle = 'none';
+    li.className = 'muted empty'; // plain small note, like the other cards' empty states
     li.textContent = 'No times yet — finish a race here to set one!';
     ol.appendChild(li);
     return;

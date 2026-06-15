@@ -437,6 +437,9 @@ input:focus { border-color: var(--accent); }
 .results-list li { display: flex; align-items: center; gap: 12px; font-size: 18px; padding: 10px 14px; background: rgba(255,255,255,0.05); border-radius: 10px; list-style-position: inside; }
 .results-list li::marker { font-weight: 900; color: var(--accent); }
 .results-list .rtime { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* empty-state note: drop the boxed-entry chrome so it reads like the small
+   muted placeholders in the other cards (e.g. "No open rooms — create one!") */
+.results-list li.empty { display: block; font-size: 14px; padding: 0; background: none; border-radius: 0; list-style: none; }
 
 #toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 50;
