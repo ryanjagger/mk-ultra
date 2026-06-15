@@ -75,6 +75,8 @@ export const DEFAULT_STYLE: PlayerStyle = { level: 0, livery: 'seat', flame: 'cl
 
 export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('listRooms') }),
+  // `bot` (optional, default false): a self-driving `?bot` client declaring
+  // itself automated, so the server excludes its seat from leaderboards.
   z.object({
     t: z.literal('createRoom'),
     name,
@@ -82,9 +84,16 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
     laps: z.number().int().min(1).max(MAX_LAPS),
     track: trackChoice.optional(), // default: 'random'
     style: PlayerStyleSchema.optional(),
+    bot: z.boolean().optional(),
   }),
-  z.object({ t: z.literal('joinRoom'), name, code: roomCode, style: PlayerStyleSchema.optional() }),
-  z.object({ t: z.literal('quickPlay'), name, style: PlayerStyleSchema.optional() }),
+  z.object({
+    t: z.literal('joinRoom'),
+    name,
+    code: roomCode,
+    style: PlayerStyleSchema.optional(),
+    bot: z.boolean().optional(),
+  }),
+  z.object({ t: z.literal('quickPlay'), name, style: PlayerStyleSchema.optional(), bot: z.boolean().optional() }),
   z.object({ t: z.literal('leaveRoom') }),
   z.object({ t: z.literal('setReady'), ready: z.boolean() }),
   z.object({ t: z.literal('setTrack'), track: trackChoice }), // host-only, lobby-only

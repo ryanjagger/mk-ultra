@@ -133,13 +133,23 @@ export class Leaderboards {
    * the whole field (this is the generalization of single-kart verify() to N
    * karts) and records the verified finish time of every human who crossed the
    * line. Bots and DNFs are skipped. No-op for battles or unknown tracks.
+   *
+   * The re-sim MUST carry the replay's `bots` flags: server-built replays have
+   * empty input logs for CPU seats (bots never relay input), so the sim drives
+   * those karts from `cfg.bots` via botMask — exactly as every live client did.
+   * Omitting them would replay CPUs as stationary and corrupt human finish ticks.
+   *
+   * `automated[i]` marks a *human* seat a client declared as self-driving
+   * (`?bot` mode); those are excluded too. This only stops clients that honestly
+   * identify — a relay carrying only inputs can't tell a scripted human from a
+   * real one, the same inherent limit the TT board has.
    */
-  recordRace(replay: ReplayMsg): void {
+  recordRace(replay: ReplayMsg, automated: readonly boolean[] = []): void {
     const { seed, laps, trackId, mode, players, bots, inputs } = replay;
     if (mode === 'battle' || !isTrackId(trackId)) return;
     const kartCount = inputs.length;
     const streams = inputs.map((rle) => decodeRle(rle));
-    const st = createGameState({ seed, lapCount: laps, playerCount: kartCount, trackId });
+    const st = createGameState({ seed, lapCount: laps, playerCount: kartCount, trackId, mode, bots });
     const longest = streams.reduce((m, s) => Math.max(m, s.length), 0);
     // small grace to coast over the line, hard-bounded like verify()
     const maxTick = Math.min(longest + TICK_RATE, COUNTDOWN_TICKS + MAX_RACE_TICKS);
@@ -147,7 +157,7 @@ export class Leaderboards {
       stepSim(st, streams.map((s) => s[st.tick] ?? 0));
     }
     for (let i = 0; i < kartCount; i++) {
-      if (bots[i]) continue;
+      if (bots[i] || automated[i]) continue;
       const ft = st.karts[i]!.finishTick;
       if (ft < 0) continue; // DNF
       const timeMs = Math.round(((ft - COUNTDOWN_TICKS) / TICK_RATE) * 1000);

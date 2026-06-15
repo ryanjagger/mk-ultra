@@ -150,6 +150,72 @@ describe('race leaderboards', () => {
     expect(lb.top('sunny-circuit', 1, 'race')).toEqual([]);
     expect(lb.top('nope', 1, 'race')).toEqual([]);
   });
+
+  it("re-simulates server CPU seats via bot flags, recording the human's true time", () => {
+    const lb = new Leaderboards(mkdtempSync(join(tmpdir(), 'mk-lb-')));
+    const trackId = 'sunny-circuit';
+    const laps = 1;
+    const seed = 0xabcde;
+    const bots = [false, true]; // seat 0 human, seat 1 server CPU
+    // Drive the live race: the human via the greedy bot, the CPU driven by the
+    // sim itself (bots[1]). The CPU's relayed input log is empty on the server,
+    // so its replay stream is neutral — exactly what we reconstruct below.
+    const st = createGameState({ seed, lapCount: laps, playerCount: 2, trackId, bots });
+    const human: number[] = [];
+    const cap = COUNTDOWN_TICKS + MAX_RACE_TICKS;
+    while (st.phase !== PHASE_FINISHED && st.tick < cap) {
+      const h = botMask(st, 0);
+      human.push(h);
+      stepSim(st, [h, 0]); // CPU input ignored (bots[1]); botMask drives it
+    }
+    const humanFinish = st.karts[0]!.finishTick;
+    expect(humanFinish).toBeGreaterThan(0);
+    expect(st.karts[1]!.finishTick).toBeGreaterThan(0); // the CPU finished too
+
+    const replay: ReplayMsg = {
+      t: 'replay',
+      seed,
+      laps,
+      mode: 'race',
+      trackId,
+      players: ['alice', 'CPU 1'],
+      styles: [DEFAULT_STYLE, DEFAULT_STYLE],
+      bots,
+      inputs: [encodeRle(human), encodeRle([])], // CPU log empty, as the server builds it
+    };
+    lb.recordRace(replay);
+
+    const board = lb.top(trackId, laps, 'race');
+    expect(board.map((e) => e.name)).toEqual(['alice']); // CPU excluded
+    // the recorded time matches the bots-driven finish — proving the re-sim
+    // reproduced the live race. Without passing `bots`, the CPU would sit still
+    // and alice's interactions (and finish tick) would diverge.
+    expect(board[0]!.timeMs).toBe(Math.round(((humanFinish - COUNTDOWN_TICKS) / TICK_RATE) * 1000));
+  });
+
+  it('excludes human seats a client declared automated (?bot)', () => {
+    const lb = new Leaderboards(mkdtempSync(join(tmpdir(), 'mk-lb-')));
+    const trackId = 'sunny-circuit';
+    const laps = 1;
+    const { streams, finishTicks } = botRace(trackId, laps, ['drive', 'drive']);
+    expect(finishTicks[0]).toBeGreaterThan(0);
+    expect(finishTicks[1]).toBeGreaterThan(0); // both real human seats finished
+
+    const replay: ReplayMsg = {
+      t: 'replay',
+      seed: 0xc0ffee,
+      laps,
+      mode: 'race',
+      trackId,
+      players: ['alice', 'bot-bob'],
+      styles: [DEFAULT_STYLE, DEFAULT_STYLE],
+      bots: [false, false],
+      inputs: streams.map((s) => encodeRle(s)),
+    };
+    // seat 1 declared itself automated — excluded even though it finished
+    lb.recordRace(replay, [false, true]);
+    expect(lb.top(trackId, laps, 'race').map((e) => e.name)).toEqual(['alice']);
+  });
 });
 
 describe('verified leaderboards', () => {

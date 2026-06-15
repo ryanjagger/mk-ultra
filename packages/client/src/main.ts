@@ -80,6 +80,9 @@ let resultsShown = false;
 let stallSince: number | null = null;
 let debugVisible = false;
 let toastTimer = 0;
+// self-driving client (E2E/demo). Declared up front so room-entry messages can
+// tell the server this seat is automated — the server excludes it from boards.
+const botMode = new URLSearchParams(location.search).has('bot');
 
 const screens = {
   home: $('screen-home'),
@@ -263,7 +266,7 @@ $('btn-garage').addEventListener('click', () => {
 renderDriver();
 
 $('btn-quick').addEventListener('click', () =>
-  net.send({ t: 'quickPlay', name: playerName(), style: myStyle() }),
+  net.send({ t: 'quickPlay', name: playerName(), style: myStyle(), bot: botMode }),
 );
 $('btn-create').addEventListener('click', () =>
   // private by default; track / laps / "list publicly" are set in the lobby
@@ -274,6 +277,7 @@ $('btn-create').addEventListener('click', () =>
     laps: 3,
     track: RANDOM_TRACK,
     style: myStyle(),
+    bot: botMode,
   }),
 );
 const joinCode = $<HTMLInputElement>('join-code');
@@ -283,7 +287,7 @@ const tryJoin = () => {
     homeError('Room codes are 4 characters');
     return;
   }
-  net.send({ t: 'joinRoom', name: playerName(), code, style: myStyle() });
+  net.send({ t: 'joinRoom', name: playerName(), code, style: myStyle(), bot: botMode });
 };
 $('btn-join').addEventListener('click', tryJoin);
 joinCode.addEventListener('keydown', (e) => {
@@ -311,7 +315,7 @@ net.on('roomList', (msg) => {
     btn.className = 'btn';
     btn.textContent = `Join ${room.code}`;
     btn.addEventListener('click', () =>
-      net.send({ t: 'joinRoom', name: playerName(), code: room.code, style: myStyle() }),
+      net.send({ t: 'joinRoom', name: playerName(), code: room.code, style: myStyle(), bot: botMode }),
     );
     li.append(label, btn);
     ul.appendChild(li);
@@ -471,7 +475,6 @@ $('lobby-code').addEventListener('click', () => {
 
 // -------------------------------------------------------------- race ----
 
-const botMode = new URLSearchParams(location.search).has('bot');
 let feats: FeatTracker | null = null;
 let raceAward: RaceAward | null = null;
 
