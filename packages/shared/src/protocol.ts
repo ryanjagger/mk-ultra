@@ -121,6 +121,8 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
     t: z.literal('getLeaderboard'),
     trackId: trackChoice,
     laps: z.number().int().min(1).max(MAX_LAPS),
+    // absent = time-trial board (the original); 'race' = online-race board
+    kind: z.enum(['tt', 'race']).optional(),
   }),
   z.object({
     t: z.literal('getGhost'),
@@ -218,6 +220,8 @@ export const ServerMsgSchema = z.discriminatedUnion('t', [
     entries: z.array(LeaderboardEntrySchema).max(10),
     /** present when answering a submission: your rank, or -1 if off the board */
     yourRank: z.number().int().min(-1).max(9).optional(),
+    // echoes the requested board so the client routes the response correctly
+    kind: z.enum(['tt', 'race']).optional(),
   }),
   z.object({
     t: z.literal('ghostData'),

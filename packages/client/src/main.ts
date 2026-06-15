@@ -69,7 +69,7 @@ window.addEventListener('pointerdown', () => audio.unlock());
 window.addEventListener('keydown', () => audio.unlock());
 document.addEventListener('visibilitychange', () => audio.setHidden(document.hidden));
 
-type Screen = 'home' | 'lobby' | 'race' | 'results';
+type Screen = 'home' | 'lobby' | 'race' | 'results' | 'leaderboard';
 let screen: Screen = 'home';
 let controller: RaceLike | null = null;
 let ttParams: { trackId: string; laps: number } | null = null;
@@ -85,6 +85,7 @@ const screens = {
   home: $('screen-home'),
   lobby: $('screen-lobby'),
   results: $('screen-results'),
+  leaderboard: $('screen-leaderboard'),
 };
 const hud = $('hud');
 const overlayDisconnect = $('overlay-disconnect');
@@ -101,6 +102,7 @@ function showScreen(next: Screen): void {
   screens.home.classList.toggle('hidden', next !== 'home');
   screens.lobby.classList.toggle('hidden', next !== 'lobby');
   screens.results.classList.toggle('hidden', next !== 'results');
+  screens.leaderboard.classList.toggle('hidden', next !== 'leaderboard');
   hud.classList.toggle('hidden', next !== 'race' && next !== 'results');
   keyboard.captureGameKeys = next === 'race';
   audio.setMusic(
@@ -147,6 +149,24 @@ const ttTrackSel = $<HTMLSelectElement>('tt-track');
 const lobbyTrackSel = $<HTMLSelectElement>('lobby-track');
 fillTrackSelect(ttTrackSel);
 fillTrackSelect(lobbyTrackSel);
+
+// Leaderboards screen: concrete tracks only (a board is per real track, never
+// 'random'), and laps 1–9 defaulting to 3.
+const lbTrackSel = $<HTMLSelectElement>('lb-track');
+const lbLapsSel = $<HTMLSelectElement>('lb-laps');
+for (const t of TRACKS) {
+  const opt = document.createElement('option');
+  opt.value = t.def.id;
+  opt.textContent = t.def.name;
+  lbTrackSel.appendChild(opt);
+}
+for (let n = 1; n <= 9; n++) {
+  const opt = document.createElement('option');
+  opt.value = String(n);
+  opt.textContent = `${n} lap${n === 1 ? '' : 's'}`;
+  if (n === 3) opt.selected = true;
+  lbLapsSel.appendChild(opt);
+}
 
 /** Show a track as the menu backdrop (parks demo karts on its grid). */
 function showBackdrop(trackChoice: string): void {
@@ -507,8 +527,63 @@ const netRace = (): RaceController | null =>
 /** name shown over a downloaded rival ghost (set before startTimeTrial) */
 let rivalGhostName: string | null = null;
 
+/** which screen requested the in-flight race board, so the reply lands right */
+let lbContext: 'results' | 'menu' | null = null;
+
+/** Render an online-race board into the results panel or the menu screen. */
+function renderRaceBoard(msg: Extract<ServerMsg, { t: 'leaderboard' }>): void {
+  const inMenu = lbContext === 'menu';
+  const ol = $(inMenu ? 'lb-list' : 'results-lb-list');
+  ol.innerHTML = '';
+  let myName = '';
+  if (inMenu) myName = nameInput.value.trim();
+  else if (controller) myName = controller.names[controller.you] ?? '';
+  if (!inMenu) $('results-lb').classList.remove('hidden');
+  if (msg.entries.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'muted';
+    li.style.listStyle = 'none';
+    li.textContent = 'No times yet — finish a race here to set one!';
+    ol.appendChild(li);
+    return;
+  }
+  msg.entries.forEach((e) => {
+    const li = document.createElement('li');
+    const nm = document.createElement('span');
+    nm.textContent = `${e.name}${myName && e.name === myName ? ' (you)' : ''}`;
+    const time = document.createElement('span');
+    time.className = 'rtime';
+    time.textContent = fmtTime(e.timeMs / 1000);
+    li.append(nm, time);
+    ol.appendChild(li);
+  });
+}
+
+/** Open the menu Leaderboards screen's board for the selected track/laps. */
+function loadMenuBoard(): void {
+  lbContext = 'menu';
+  net.send({
+    t: 'getLeaderboard',
+    trackId: lbTrackSel.value,
+    laps: Number(lbLapsSel.value),
+    kind: 'race',
+  });
+}
+
+$('btn-leaderboards').addEventListener('click', () => {
+  showScreen('leaderboard');
+  loadMenuBoard();
+});
+lbTrackSel.addEventListener('change', loadMenuBoard);
+lbLapsSel.addEventListener('change', loadMenuBoard);
+$('btn-lb-back').addEventListener('click', () => showScreen('home'));
+
 net.on('leaderboard', (msg) => {
-  // only decorate the results screen for the matching time trial
+  if (msg.kind === 'race') {
+    renderRaceBoard(msg);
+    return;
+  }
+  // time trial: only decorate the results screen for the matching run
   const tt = controller instanceof TimeTrialController ? controller : null;
   if (!tt || tt.trackId !== msg.trackId || tt.laps !== msg.laps) return;
   const box = $('tt-lb');
@@ -775,6 +850,19 @@ function showResults(): void {
     } else {
       net.send({ t: 'getLeaderboard', trackId: tt.trackId, laps: tt.laps });
     }
+  }
+
+  // online race: fetch + show the persistent race board for this track/laps
+  // (the server recorded it from its own replay; bot tabs don't pollute boards)
+  $('results-lb').classList.add('hidden');
+  if (controller instanceof RaceController && !botMode) {
+    lbContext = 'results';
+    net.send({
+      t: 'getLeaderboard',
+      trackId: controller.state.track.def.id,
+      laps: controller.state.cfg.lapCount,
+      kind: 'race',
+    });
   }
 
   if (feats && !raceAward && controller instanceof RaceController) {

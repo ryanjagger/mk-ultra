@@ -313,14 +313,16 @@ export class GameLobby {
           t: 'leaderboard',
           trackId: msg.trackId,
           laps: msg.laps,
-          entries: this.leaderboards.top(msg.trackId, msg.laps),
+          entries: this.leaderboards.top(msg.trackId, msg.laps, msg.kind),
+          kind: msg.kind,
         });
         return;
       }
       case 'getGhost': {
         if (!this.leaderboards) return;
         const entry = this.leaderboards.ghost(msg.trackId, msg.laps, msg.rank);
-        if (!entry) {
+        if (!entry || !entry.rle) {
+          // race entries carry no ghost recording; only TT boards have one
           ctx.conn.send({ t: 'error', message: 'No ghost at that rank' });
           return;
         }
@@ -506,7 +508,12 @@ export class GameLobby {
   }
 
   private endRace(room: Room, placements?: readonly number[]): void {
-    if (room.race) room.lastReplay = this.buildReplay(room, room.race);
+    if (room.race) {
+      room.lastReplay = this.buildReplay(room, room.race);
+      // record the race off the hot relay path: re-simulate the canonical
+      // replay and store each human's verified finish time (no client trust)
+      this.leaderboards?.recordRace(room.lastReplay);
+    }
     // cup scoring: first reporter's deterministic placements stand
     if (room.cupRaces > 0 && placements) {
       const seen = new Set<number>();

@@ -14,11 +14,14 @@ import {
   botMask,
   PHASE_FINISHED,
   COUNTDOWN_TICKS,
+  MAX_RACE_TICKS,
   TICK_RATE,
   BTN_ACCEL,
 } from '@mk/sim';
-import { encodeRle, TT_SEED } from '@mk/shared';
+import { encodeRle, DEFAULT_STYLE, TT_SEED, type ServerMsg } from '@mk/shared';
 import { Leaderboards } from '../src/leaderboard.js';
+
+type ReplayMsg = Extract<ServerMsg, { t: 'replay' }>;
 
 /**
  * A legitimate finished run, as the client would submit it. `hesitate` drops
@@ -41,6 +44,113 @@ function botRun(trackId: string, hesitate = 0): { rle: [number, number][]; timeM
     timeMs: Math.round(((ft - COUNTDOWN_TICKS) / TICK_RATE) * 1000),
   };
 }
+
+/** Per-kart driving behaviour for the multi-kart race recording. */
+type DriveMode = 'drive' | 'hesitate' | 'still';
+
+/**
+ * Drive a whole field together (the multi-kart generalization of botRun) and
+ * return each kart's recorded input stream plus its finish tick. Karts interact
+ * (collisions, items), so this is a real race — not N independent runs glued
+ * together. A 'still' kart never accelerates and ends DNF; the race then closes
+ * STRAGGLER_TICKS after the leader, exactly as a real relayed race would.
+ */
+function botRace(
+  trackId: string,
+  laps: number,
+  modes: DriveMode[],
+): { streams: number[][]; finishTicks: number[] } {
+  const seed = 0xc0ffee;
+  const st = createGameState({ seed, lapCount: laps, playerCount: modes.length, trackId });
+  const streams: number[][] = modes.map(() => []);
+  const cap = COUNTDOWN_TICKS + MAX_RACE_TICKS;
+  while (st.phase !== PHASE_FINISHED && st.tick < cap) {
+    const masks = modes.map((mode, k) => {
+      if (mode === 'still') return 0; // sits on the grid forever → DNF
+      let mask = botMask(st, k);
+      if (mode === 'hesitate' && st.tick >= COUNTDOWN_TICKS && st.tick < COUNTDOWN_TICKS + 90) {
+        mask &= ~BTN_ACCEL; // 1.5s of hesitation after GO — a slower legit run
+      }
+      return mask;
+    });
+    masks.forEach((m, k) => streams[k]!.push(m));
+    stepSim(st, masks);
+  }
+  return { streams, finishTicks: st.karts.map((k) => k.finishTick) };
+}
+
+describe('race leaderboards', () => {
+  it('records every human finisher from a replay, excluding bots and DNFs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mk-lb-'));
+    const lb = new Leaderboards(dir);
+    const trackId = 'sunny-circuit';
+    const laps = 1;
+    // seats: 2 racing humans, 1 racing bot, 1 human who never moves (DNF)
+    const modes: DriveMode[] = ['drive', 'hesitate', 'drive', 'still'];
+    const players = ['alice', 'bob', 'CPU 1', 'dave'];
+    const bots = [false, false, true, false];
+    const { streams, finishTicks } = botRace(trackId, laps, modes);
+
+    // scenario sanity: the racers (incl. the bot) finished, the still kart DNF'd
+    expect(finishTicks[0]).toBeGreaterThan(0);
+    expect(finishTicks[1]).toBeGreaterThan(0);
+    expect(finishTicks[2]).toBeGreaterThan(0); // the bot DID finish — but is excluded
+    expect(finishTicks[3]).toBe(-1); // DNF
+
+    const replay: ReplayMsg = {
+      t: 'replay',
+      seed: 0xc0ffee,
+      laps,
+      mode: 'race',
+      trackId,
+      players,
+      styles: players.map(() => DEFAULT_STYLE),
+      bots,
+      inputs: streams.map((s) => encodeRle(s)),
+    };
+    lb.recordRace(replay);
+
+    const board = lb.top(trackId, laps, 'race');
+    // only the two racing humans land on the board — bot and DNF excluded
+    expect(board.map((e) => e.name).sort()).toEqual(['alice', 'bob']);
+    expect(board.every((e) => e.timeMs > 0)).toBe(true);
+    // sorted fastest-first, and the times match the re-simulated finish ticks
+    expect(board[0]!.timeMs).toBeLessThanOrEqual(board[1]!.timeMs);
+    const human = (name: string, tick: number) =>
+      expect(board.find((e) => e.name === name)!.timeMs).toBe(
+        Math.round(((tick - COUNTDOWN_TICKS) / TICK_RATE) * 1000),
+      );
+    human('alice', finishTicks[0]!);
+    human('bob', finishTicks[1]!);
+
+    // the TT board for the same track/laps is untouched (separate key prefix)
+    expect(lb.top(trackId, laps, 'tt')).toEqual([]);
+
+    // persistence: a fresh instance reloads the race board from disk
+    const lb2 = new Leaderboards(dir);
+    expect(lb2.top(trackId, laps, 'race')).toEqual(board);
+  });
+
+  it('skips battles and unknown tracks', () => {
+    const lb = new Leaderboards(mkdtempSync(join(tmpdir(), 'mk-lb-')));
+    const { streams } = botRace('sunny-circuit', 1, ['drive']);
+    const base: ReplayMsg = {
+      t: 'replay',
+      seed: 0xc0ffee,
+      laps: 1,
+      mode: 'race',
+      trackId: 'sunny-circuit',
+      players: ['alice'],
+      styles: [DEFAULT_STYLE],
+      bots: [false],
+      inputs: streams.map((s) => encodeRle(s)),
+    };
+    lb.recordRace({ ...base, mode: 'battle' });
+    lb.recordRace({ ...base, trackId: 'nope' });
+    expect(lb.top('sunny-circuit', 1, 'race')).toEqual([]);
+    expect(lb.top('nope', 1, 'race')).toEqual([]);
+  });
+});
 
 describe('verified leaderboards', () => {
   it('accepts a real run with the sim-computed time, rejects fabrications', () => {

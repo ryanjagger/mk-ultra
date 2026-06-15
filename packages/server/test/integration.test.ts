@@ -56,6 +56,7 @@ type RaceStartMsg = Extract<ServerMsg, { t: 'raceStart' }>;
 type DesyncMsg = Extract<ServerMsg, { t: 'desync' }>;
 type DroppedMsg = Extract<ServerMsg, { t: 'dropped' }>;
 type ReplayMsg = Extract<ServerMsg, { t: 'replay' }>;
+type LeaderboardMsg = Extract<ServerMsg, { t: 'leaderboard' }>;
 
 class TestClient {
   ws: WebSocket;
@@ -63,6 +64,7 @@ class TestClient {
   room: RoomMsg | null = null;
   raceStart: RaceStartMsg | null = null;
   replay: ReplayMsg | null = null;
+  leaderboards: LeaderboardMsg[] = [];
   session: RollbackSession | null = null;
   desyncs: DesyncMsg[] = [];
   drops: DroppedMsg[] = [];
@@ -91,6 +93,9 @@ class TestClient {
           break;
         case 'replay':
           this.replay = msg;
+          break;
+        case 'leaderboard':
+          this.leaderboards.push(msg);
           break;
         case 'input':
           if (this.session) this.applyInput(msg.p, msg.f, msg.m, msg.r);
@@ -345,6 +350,25 @@ describe('server integration (M5)', () => {
     });
     for (let t = 0; t < FRAMES; t++) stepSim(sim, [ins[0]![t]!, ins[1]![t]!]);
     expect(hashState(sim)).toBe(hashState(a.session!.state));
+  });
+
+  it('serves the race leaderboard over the wire, echoing kind:race', async () => {
+    const { a } = await setupRace();
+    // a fresh track/laps has no recorded races yet — the new server branch must
+    // still answer with an empty race board (not the TT board) and echo kind
+    a.send({
+      t: 'getLeaderboard',
+      trackId: a.raceStart!.trackId,
+      laps: a.raceStart!.laps,
+      kind: 'race',
+    });
+    await until(() => a.leaderboards.length > 0, 'leaderboard reply');
+    const lb = a.leaderboards.at(-1)!;
+    expect(lb.kind).toBe('race');
+    expect(lb.trackId).toBe(a.raceStart!.trackId);
+    expect(lb.laps).toBe(a.raceStart!.laps);
+    expect(lb.entries).toEqual([]);
+    expect(a.errors).toHaveLength(0);
   });
 
   it('a CPU seat races deterministically alongside one human', { timeout: 30000 }, async () => {

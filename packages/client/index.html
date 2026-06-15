@@ -53,6 +53,10 @@
             </div>
           </div>
 
+          <div class="divider"></div>
+          <div class="row"><button id="btn-leaderboards" class="btn"><span class="ico" data-icon="trophy"></span>Leaderboards</button></div>
+          <p class="hero-caption muted">world records from online races</p>
+
           <p id="home-error" class="error hidden"></p>
         </div>
 
@@ -144,6 +148,27 @@
       </div>
     </div>
 
+    <div id="screen-leaderboard" class="screen hidden">
+      <div class="card">
+        <h2><span class="ico" data-icon="trophy"></span>Leaderboards</h2>
+        <span class="section-label">Online race records</span>
+        <div class="setup-grid">
+          <div class="setup-field">
+            <label class="field-label" for="lb-track">Track</label>
+            <select id="lb-track"></select>
+          </div>
+          <div class="setup-field">
+            <label class="field-label" for="lb-laps">Laps</label>
+            <select id="lb-laps"></select>
+          </div>
+        </div>
+        <ol id="lb-list" class="results-list"></ol>
+        <div class="row">
+          <button id="btn-lb-back" class="btn btn-ghost">Back</button>
+        </div>
+      </div>
+    </div>
+
     <div id="hud" class="hidden">
       <div id="hud-pos"><span id="hud-pos-num">1</span><span id="hud-pos-of">/4</span></div>
       <div id="hud-lap">LAP 1/3</div>
@@ -196,6 +221,10 @@
           </div>
           <div id="xp-levelup" class="hidden"><span class="ico" data-icon="arrow-fat-up"></span>LEVEL UP!</div>
           <ul id="xp-unlocks"></ul>
+        </div>
+        <div id="results-lb" class="hidden">
+          <h3><span class="ico" data-icon="globe"></span>Race leaderboard</h3>
+          <ol id="results-lb-list" class="results-list"></ol>
         </div>
         <div class="row">
           <button id="btn-back-lobby" class="btn btn-primary">Back to lobby</button>

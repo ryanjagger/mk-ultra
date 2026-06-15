@@ -1,13 +1,21 @@
 /**
- * Verified time-trial leaderboards. A submission is an input recording; the
- * server replays it through the deterministic sim (the one place the server
- * DOES simulate — offline verification, never live relay) and stores the
- * time the sim says, not the time the client claims. Cheat-proof by
- * determinism: a forged time would need a forged input stream that actually
- * drives that fast.
+ * Verified leaderboards. Two kinds share one store:
+ *
+ *  - Time trial: a submission is an input recording; the server replays it
+ *    through the deterministic sim (the one place the server DOES simulate —
+ *    offline verification, never live relay) and stores the time the sim says,
+ *    not the time the client claims. Cheat-proof by determinism: a forged time
+ *    would need a forged input stream that actually drives that fast.
+ *  - Online race: nobody submits anything. The server already builds a
+ *    canonical replay of each finished race from its own first-write-wins input
+ *    logs, so it re-simulates that replay itself and reads each human's
+ *    finishTick — same no-client-trust property, no new wire surface, no sim
+ *    changes. Race seeds are random per race, so race times include item luck;
+ *    that is inherent to a race board.
  *
  * Storage is one JSON file under DATA_DIR (mount a volume in production);
- * top N entries per (trackId, laps), best run per name.
+ * top N entries per board, best run per name. Race boards live under a
+ * `race:` key prefix in the same Map/file — TT keys load unchanged.
  */
 import {
   createGameState,
@@ -18,16 +26,23 @@ import {
   MAX_RACE_TICKS,
   TICK_RATE,
 } from '@mk/sim';
-import { decodeRle, TT_SEED, type LeaderboardEntry } from '@mk/shared';
+import { decodeRle, TT_SEED, type LeaderboardEntry, type ServerMsg } from '@mk/shared';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 type Rle = [number, number][];
 
+/** The canonical replay the server builds at endRace (config + per-kart inputs). */
+type ReplayMsg = Extract<ServerMsg, { t: 'replay' }>;
+
+/** Which board: time-trial (the original) or online-race. */
+export type BoardKind = 'tt' | 'race';
+
 interface StoredEntry {
   name: string;
   timeMs: number;
-  rle: Rle;
+  /** TT ghost recording; race entries have no single-kart stream, so optional */
+  rle?: Rle;
 }
 
 const TOP_N = 10;
@@ -79,13 +94,11 @@ export class Leaderboards {
   }
 
   /**
-   * Verify and record a run. Returns the rank (0-based) the run holds after
-   * insertion, -1 if verified but off the board, or null if rejected.
+   * Insert a finished time into a board, keeping the best run per name. Returns
+   * the rank (0-based) the run holds after insertion, or -1 if it landed off
+   * the board (beyond TOP_N).
    */
-  submit(name: string, trackId: string, laps: number, rle: Rle): number | null {
-    const timeMs = this.verify(trackId, laps, rle);
-    if (timeMs === null) return null;
-    const key = `${trackId}:${laps}`;
+  private insert(key: string, name: string, timeMs: number, rle?: Rle): number {
     const board = this.boards.get(key) ?? [];
     const mine = board.findIndex((e) => e.name === name);
     if (mine >= 0) {
@@ -104,8 +117,47 @@ export class Leaderboards {
     return rank < TOP_N ? rank : -1;
   }
 
-  top(trackId: string, laps: number): LeaderboardEntry[] {
-    const board = this.boards.get(`${trackId}:${laps}`) ?? [];
+  /**
+   * Verify and record a time-trial run. Returns the rank (0-based) the run
+   * holds after insertion, -1 if verified but off the board, or null if
+   * rejected (failed verification).
+   */
+  submit(name: string, trackId: string, laps: number, rle: Rle): number | null {
+    const timeMs = this.verify(trackId, laps, rle);
+    if (timeMs === null) return null;
+    return this.insert(`${trackId}:${laps}`, name, timeMs, rle);
+  }
+
+  /**
+   * Record an online race from the server's own canonical replay. Re-simulates
+   * the whole field (this is the generalization of single-kart verify() to N
+   * karts) and records the verified finish time of every human who crossed the
+   * line. Bots and DNFs are skipped. No-op for battles or unknown tracks.
+   */
+  recordRace(replay: ReplayMsg): void {
+    const { seed, laps, trackId, mode, players, bots, inputs } = replay;
+    if (mode === 'battle' || !isTrackId(trackId)) return;
+    const kartCount = inputs.length;
+    const streams = inputs.map((rle) => decodeRle(rle));
+    const st = createGameState({ seed, lapCount: laps, playerCount: kartCount, trackId });
+    const longest = streams.reduce((m, s) => Math.max(m, s.length), 0);
+    // small grace to coast over the line, hard-bounded like verify()
+    const maxTick = Math.min(longest + TICK_RATE, COUNTDOWN_TICKS + MAX_RACE_TICKS);
+    while (st.phase !== PHASE_FINISHED && st.tick < maxTick) {
+      stepSim(st, streams.map((s) => s[st.tick] ?? 0));
+    }
+    for (let i = 0; i < kartCount; i++) {
+      if (bots[i]) continue;
+      const ft = st.karts[i]!.finishTick;
+      if (ft < 0) continue; // DNF
+      const timeMs = Math.round(((ft - COUNTDOWN_TICKS) / TICK_RATE) * 1000);
+      this.insert(`race:${trackId}:${laps}`, players[i]!, timeMs);
+    }
+  }
+
+  top(trackId: string, laps: number, kind: BoardKind = 'tt'): LeaderboardEntry[] {
+    const key = kind === 'race' ? `race:${trackId}:${laps}` : `${trackId}:${laps}`;
+    const board = this.boards.get(key) ?? [];
     return board.map((e) => ({ name: e.name, timeMs: e.timeMs }));
   }
 
