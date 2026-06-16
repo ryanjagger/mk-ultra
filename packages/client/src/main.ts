@@ -1159,7 +1159,7 @@ function updateHud(): void {
   const placements = controller.placements();
   $('hud-pos-num').textContent = String(placements.indexOf(controller.you) + 1);
   $('hud-lap').textContent = battle
-    ? `🎈${'•'.repeat(me.balloons)}`
+    ? '🛡️'.repeat(me.balloons)
     : `LAP ${Math.min(me.lap, st.cfg.lapCount)}/${st.cfg.lapCount}`;
   $('hud-time').textContent = fmtTime(controller.raceTimeSec());
 

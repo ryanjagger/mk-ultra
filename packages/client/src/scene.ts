@@ -67,6 +67,64 @@ function disposeTree(root: THREE.Object3D): void {
   });
 }
 
+// Battle-mode shield marker, drawn once to a canvas and shared by every kart.
+// A sprite billboards, so a held shield reads from any camera angle (the old
+// balloon spheres looked like ammo from the driver's seat). Marked
+// userData.shared so the per-kart disposeTree never frees the singleton.
+let SHIELD_TEX: THREE.Texture | null = null;
+function shieldTexture(): THREE.Texture {
+  if (SHIELD_TEX) return SHIELD_TEX;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const cx = 64;
+  // heraldic shield silhouette: flat top, sides tapering to a bottom point
+  const shield = () => {
+    g.beginPath();
+    g.moveTo(cx - 38, 24);
+    g.lineTo(cx + 38, 24);
+    g.lineTo(cx + 38, 62);
+    g.quadraticCurveTo(cx + 38, 100, cx, 118);
+    g.quadraticCurveTo(cx - 38, 100, cx - 38, 62);
+    g.closePath();
+  };
+  const grad = g.createLinearGradient(0, 18, 0, 120);
+  grad.addColorStop(0, '#9af0ff');
+  grad.addColorStop(1, '#2b8fd6');
+  shield();
+  g.shadowColor = 'rgba(95, 225, 255, 0.95)';
+  g.shadowBlur = 14;
+  g.fillStyle = grad;
+  g.fill();
+  g.shadowBlur = 0;
+  shield();
+  g.lineWidth = 7;
+  g.strokeStyle = '#eaffff';
+  g.stroke();
+  // emblem cross: a quick read that this is armour, not a projectile
+  g.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+  g.lineWidth = 5;
+  g.beginPath();
+  g.moveTo(cx, 32);
+  g.lineTo(cx, 104);
+  g.moveTo(cx - 26, 54);
+  g.lineTo(cx + 26, 54);
+  g.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  tex.userData.shared = true;
+  SHIELD_TEX = tex;
+  return tex;
+}
+/** One floating shield marker (its own material; the texture is shared). */
+function shieldSprite(): THREE.Sprite {
+  const s = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: shieldTexture(), transparent: true, depthWrite: false }),
+  );
+  s.scale.set(0.56, 0.64, 1);
+  return s;
+}
+
 function checkerTexture(cols: number, rows: number, a = '#ffffff', b = '#111111'): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = cols * 16;
@@ -400,8 +458,8 @@ interface KartVisual {
   squash: number; // landing suspension squash (1 = rest)
   prevHeading: number;
   airborne: boolean; // was off the ground last frame (landing detection)
-  balloons: THREE.Mesh[]; // battle-mode lives, shown while balloons remain
-  prevBalloons: number;
+  shields: THREE.Sprite[]; // battle-mode lives, shown while shields remain
+  prevShields: number;
   wasFinished: boolean; // confetti fires on the finish edge
 }
 
@@ -496,7 +554,7 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   // reflections live on the kart materials only (null until the env loads;
   // applyEnvToKarts patches karts built before then) — never scene.environment.
   // Tag this exact set so the async patch reflects the same materials (not the
-  // rubber/skin/balloons) whether a kart is built before or after the env loads.
+  // rubber/skin/shields) whether a kart is built before or after the env loads.
   for (const m of [paint, accentPaint, chrome, carbon]) {
     m.userData.env = true;
     m.envMap = ENV_MAP;
@@ -647,18 +705,14 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
   sparkR.visible = false;
   group.add(sparkR);
 
-  // battle balloons bob above the spoiler; hidden outside battle mode
-  const balloons: THREE.Mesh[] = [];
-  const balloonColors = ['#ff4757', '#ffd23f', '#3fd06b'];
+  // battle shields hover above the spoiler; hidden outside battle mode
+  const shields: THREE.Sprite[] = [];
   for (let i = 0; i < 3; i++) {
-    const b = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 10, 8),
-      new THREE.MeshStandardMaterial({ color: balloonColors[i], roughness: 0.4 }),
-    );
-    b.position.set((i - 1) * 0.45, 1.7, -0.35);
-    b.visible = false;
-    group.add(b);
-    balloons.push(b);
+    const s = shieldSprite();
+    s.position.set((i - 1) * 0.45, 1.75, -0.35);
+    s.visible = false;
+    group.add(s);
+    shields.push(s);
   }
 
   if (name) group.add(nameSprite(name, look.primary));
@@ -677,8 +731,8 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
     squash: 1,
     prevHeading: 0,
     airborne: false,
-    balloons,
-    prevBalloons: 3,
+    shields,
+    prevShields: 3,
     wasFinished: false,
   };
 }
@@ -1174,7 +1228,7 @@ export class GameScene {
         const mm = (o as THREE.Mesh).material;
         if (!mm) return;
         for (const mat of Array.isArray(mm) ? mm : [mm]) {
-          // only the env-tagged set (see buildKart), so rubber/skin/balloons
+          // only the env-tagged set (see buildKart), so rubber/skin/shields
           // never pick up timing-dependent reflections on a cold load
           if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial && mat.userData.env) {
             (mat as THREE.MeshStandardMaterial).envMap = ENV_MAP;
@@ -2277,16 +2331,16 @@ export class GameScene {
       v.bodyTilt.rotation.x = v.lean;
       v.squash += (1 - v.squash) * Math.min(1, dt * 9);
       v.bodyTilt.scale.set(1 + (1 - v.squash) * 0.5, v.squash, 1 + (1 - v.squash) * 0.5);
-      // battle balloons: show what's left, burst on every pop
+      // battle shields: show what's left, burst on every pop
       if (state.cfg.mode === 'battle') {
         const bal = state.karts[i]?.balloons ?? 0;
-        v.balloons.forEach((m, bi) => {
-          m.visible = bi < bal;
+        v.shields.forEach((s, bi) => {
+          s.visible = bi < bal;
         });
-        if (bal < v.prevBalloons) {
-          this.spawnBurst(new THREE.Vector3(k.x, gy + 1.7, k.z));
+        if (bal < v.prevShields) {
+          this.spawnBurst(new THREE.Vector3(k.x, gy + 1.75, k.z));
         }
-        v.prevBalloons = bal;
+        v.prevShields = bal;
       }
       // crossing the line pops confetti (race mode; battle "finish" = elimination)
       if (k.finished && !v.wasFinished && state.cfg.mode !== 'battle') {
