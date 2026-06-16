@@ -195,6 +195,9 @@ input:focus { border-color: var(--accent); }
 .room-list .btn { padding: 6px 12px; font-size: 13px; }
 
 .lobby-card { min-width: 380px; }
+/* the lobby's two columns stack (matching the old single column) until a short
+   landscape viewport flips them side by side — see the landscape media query */
+.lobby-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 /* the room code is the hub's headline: big, gold, one tap to copy */
 .code-big {
   display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%;
@@ -394,6 +397,8 @@ input:focus { border-color: var(--accent); }
   left: 50%; top: 34%; transform: translate(-50%, -50%); font-size: 140px; font-weight: 900; font-style: italic;
   color: var(--accent); text-shadow: 0 12px 50px rgba(0,0,0,0.8); animation: pop 0.9s ease both;
 }
+/* the pre-GO "GET READY" prompt: same slot, sized to fit a word not a digit */
+#hud-countdown.ready { font-size: 52px; letter-spacing: 0.04em; white-space: nowrap; }
 #hud-wait { left: 50%; top: 14%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 10px; font-size: 14px; }
 #hud-desync {
   left: 50%; top: 0; transform: translateX(-50%); background: var(--accent2); color: #fff;
@@ -475,4 +480,26 @@ input:focus { border-color: var(--accent); }
   #hud-pos-num { font-size: 48px; }
   #hud-speed { font-size: 34px; }
   #hud-minimap { width: 120px; height: 120px; right: 14px; bottom: 76px; }
+}
+
+/* ------------------------------------------------- landscape lobby ---- */
+/* A phone held sideways is wide but short, so the tall single-column lobby
+   would push START RACE past the bottom edge. Lay the two columns side by
+   side (room code + race setup | players + actions) so it all fits. */
+@media (orientation: landscape) and (max-height: 600px) {
+  .lobby-card {
+    flex-direction: row; align-items: stretch; gap: 0;
+    width: min(94vw, 900px); min-width: 0; max-width: none;
+    padding: 14px 20px;            /* trim the vertical so the card clears the fold */
+  }
+  .lobby-col { flex: 1 1 0; gap: 10px; }
+  /* the headline shrinks: still gold and tappable, but not a column-buster */
+  .code-big { font-size: 24px; padding: 9px 14px; letter-spacing: 0.24em; }
+  /* a vertical gutter between the columns instead of the stacked divider */
+  .lobby-card > .lobby-col + .lobby-col {
+    border-left: 1px solid var(--panel-border); margin-left: 22px; padding-left: 22px;
+  }
+  .lobby-gutter { display: none; }
+  /* sink START/LEAVE to the bottom of the right column, level with the card */
+  .lobby-col .row { margin-top: auto; }
 }

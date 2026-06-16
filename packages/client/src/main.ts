@@ -1177,9 +1177,19 @@ function updateHud(): void {
   updateItemBadge(st, me);
 
   const cd = $('hud-countdown');
-  if (st.phase === PHASE_COUNTDOWN) {
+  if (controller.prestart && st.phase === PHASE_COUNTDOWN) {
+    // the synced clock hasn't started — sim is frozen at frame 0. Don't freeze
+    // the "3" here; show a ready prompt so 3-2-1 each get their full second.
+    cd.textContent = 'GET READY';
+    cd.style.color = '';
+    cd.classList.add('ready');
+    cd.classList.remove('hidden');
+  } else if (st.phase === PHASE_COUNTDOWN) {
+    cd.classList.remove('ready');
     const left = COUNTDOWN_TICKS - st.tick;
-    cd.textContent = String(Math.ceil(left / 60));
+    // clamp to 1: at tick==COUNTDOWN_TICKS the phase is still COUNTDOWN for one
+    // frame with left==0, which would otherwise flash a "0" before "GO!"
+    cd.textContent = String(Math.max(1, Math.ceil(left / 60)));
     // rev cue: amber when the launch window opens, green while revving in
     // it, red once the engine is flooded (held too long)
     cd.style.color =
@@ -1189,6 +1199,7 @@ function updateHud(): void {
       : '#ffd23f';
     cd.classList.remove('hidden');
   } else if (st.tick < COUNTDOWN_TICKS + 50 && st.phase !== PHASE_FINISHED) {
+    cd.classList.remove('ready');
     cd.style.color = '';
     cd.textContent = 'GO!';
     cd.classList.remove('hidden');

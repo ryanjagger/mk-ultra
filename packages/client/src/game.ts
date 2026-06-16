@@ -49,6 +49,8 @@ export interface RaceLike {
   readonly you: number;
   readonly names: string[];
   stalled: boolean;
+  /** true before the synced race clock starts (the pre-GO join buffer) */
+  prestart?: boolean;
   readonly state: GameState;
   update(): void;
   renderKarts(dt: number): KartRender[];
@@ -115,6 +117,8 @@ export class RaceController implements RaceLike {
   readonly names: string[];
   readonly cfg: RaceConfig;
   private startAtMs: number;
+  /** true until serverNow() reaches startAtMs — the sim is frozen at frame 0 */
+  prestart = true;
 
   private lastInputFrame = -1;
   /** masks already sent, newest first — piggybacked on every input message */
@@ -200,6 +204,7 @@ export class RaceController implements RaceLike {
   /** Advance the sim toward the wall-clock target. Call once per RAF. */
   update(): void {
     const elapsedMs = this.clock.serverNow() - this.startAtMs;
+    this.prestart = elapsedMs < 0;
     if (elapsedMs < 0) {
       this.alpha = 0;
       return;
