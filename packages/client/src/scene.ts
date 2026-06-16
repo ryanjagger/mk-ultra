@@ -10,6 +10,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {
   getTrack,
   fxToFloat,
@@ -32,6 +33,21 @@ export const KART_COLORS = ['#ff4757', '#2e86ff', '#ffd23f', '#3fd06b'];
 const toV3 = (x: number, y: number) => new THREE.Vector3(fxToFloat(x), 0, -fxToFloat(y));
 const yawOf = (a: THREE.Vector3, b: THREE.Vector3) => Math.atan2(-(b.z - a.z), b.x - a.x);
 
+// every texture slot a kart material can hold; disposed with the mesh unless the
+// texture is shared and scene-owned (env/detail maps live longer than any kart)
+const TEXTURE_SLOTS = [
+  'map',
+  'normalMap',
+  'roughnessMap',
+  'metalnessMap',
+  'clearcoatMap',
+  'clearcoatRoughnessMap',
+  'clearcoatNormalMap',
+  'aoMap',
+  'emissiveMap',
+  'alphaMap',
+] as const;
+
 function disposeTree(root: THREE.Object3D): void {
   root.traverse((o) => {
     const mesh = o as Partial<THREE.Mesh & THREE.Sprite>;
@@ -39,8 +55,12 @@ function disposeTree(root: THREE.Object3D): void {
     if (mesh.material) {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const m of mats) {
-        const tex = (m as THREE.MeshBasicMaterial).map;
-        if (tex) tex.dispose();
+        const slots = m as unknown as Record<string, THREE.Texture | null | undefined>;
+        for (const slot of TEXTURE_SLOTS) {
+          const tex = slots[slot];
+          // shared scene-owned textures (env, detail maps) outlive any one kart
+          if (tex && !tex.userData?.shared) tex.dispose();
+        }
         m.dispose();
       }
     }
@@ -274,7 +294,7 @@ function nameSprite(name: string, color: string): THREE.Sprite {
 interface KartVisual {
   group: THREE.Group;
   bodyTilt: THREE.Group; // chassis-only lean/squash (wheels stay grounded)
-  wheels: { mesh: THREE.Mesh; front: boolean }[];
+  wheels: { mesh: THREE.Object3D; front: boolean }[]; // Group: tire + rim + spokes
   flame: THREE.Mesh;
   sparkL: THREE.Mesh;
   sparkR: THREE.Mesh;
@@ -303,64 +323,201 @@ export function defaultLook(seat: number): KartLook {
   return { primary: c, accent: c, flame: '#ff9b2f' };
 }
 
+/**
+ * Shared, scene-owned detail textures (lazy, loaded once, reused by every
+ * kart). Marked `userData.shared` so the per-kart `disposeTree` never frees
+ * them. The carbon weave dresses the dark structural parts (diffuser, wing
+ * uprights, cockpit halo) — it carries no color, so it never fights the
+ * per-player paint tint.
+ */
+/**
+ * Shared reflection env (PMREM-filtered). Applied per-material on kart paint
+ * only — assigning it to `scene.environment` would light the whole track via
+ * IBL and wash the scene out. Null until the studio image finishes loading.
+ */
+let ENV_MAP: THREE.Texture | null = null;
+
+let DETAIL: { carbon: THREE.Texture; decal: THREE.Texture } | null = null;
+function detailMaps(): { carbon: THREE.Texture; decal: THREE.Texture } | null {
+  if (DETAIL) return DETAIL;
+  if (typeof document === 'undefined') return null; // node/test: no DOM, skip
+  const carbon = new THREE.TextureLoader().load('/textures/paint_carbon.png');
+  carbon.colorSpace = THREE.SRGBColorSpace;
+  carbon.wrapS = carbon.wrapT = THREE.RepeatWrapping;
+  carbon.repeat.set(2, 2);
+  carbon.anisotropy = 8; // clamped to the GPU max; crisp at grazing angles
+  carbon.userData.shared = true;
+  // the livery decal ships as an SVG; the browser rasterizes it (alpha intact)
+  // when drawn to a canvas, so we wrap it in a CanvasTexture instead of a PNG
+  const decal = svgTexture('/textures/decal_stripe.svg', 512);
+  decal.userData.shared = true;
+  DETAIL = { carbon, decal };
+  return DETAIL;
+}
+
+/** Rasterize an SVG (transparent background preserved) into a CanvasTexture. */
+function svgTexture(url: string, size: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  const img = new Image();
+  img.onload = () => {
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    const ar = img.width / img.height || 1; // fit, centered, aspect-preserved
+    const w = ar > 1 ? size : size * ar;
+    const h = ar > 1 ? size / ar : size;
+    g.clearRect(0, 0, size, size);
+    g.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    tex.needsUpdate = true; // canvas filled async; push the pixels to the GPU
+  };
+  img.src = url;
+  return tex;
+}
+
 function buildKart(look: KartLook, name: string | null): KartVisual {
   const group = new THREE.Group();
   group.rotation.order = 'YZX'; // yaw, then slope pitch in the kart's frame
-  const mat = new THREE.MeshStandardMaterial({ color: look.primary, roughness: 0.5, metalness: 0.15 });
-  const accentMat = new THREE.MeshStandardMaterial({ color: look.accent, roughness: 0.5, metalness: 0.15 });
-  const dark = new THREE.MeshStandardMaterial({ color: '#1c1f26', roughness: 0.9 });
+
+  // automotive clearcoat paint: a dielectric base under a glossy coat that
+  // reflects the studio env map (scene.environment). Per-call materials — the
+  // time-trial ghost mutates these to opacity 0.35, so they must NOT be shared.
+  const paintOpts = {
+    metalness: 0.0,
+    roughness: 0.42,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
+    envMapIntensity: 0.85, // capped <1 so bright liveries don't bloom-blow out
+  } as const;
+  const paint = new THREE.MeshPhysicalMaterial({ color: look.primary, ...paintOpts });
+  const accentPaint = new THREE.MeshPhysicalMaterial({ color: look.accent, ...paintOpts });
+  const trim = new THREE.MeshStandardMaterial({ color: '#1c1f26', roughness: 0.85, metalness: 0.1 });
+  const rubber = new THREE.MeshStandardMaterial({ color: '#13151b', roughness: 0.92, metalness: 0 });
+  const chrome = new THREE.MeshStandardMaterial({ color: '#cdd3dd', roughness: 0.28, metalness: 0.95, envMapIntensity: 1.0 });
+  const carbon = new THREE.MeshStandardMaterial({
+    color: '#3a3d44', roughness: 0.55, metalness: 0.2, map: detailMaps()?.carbon ?? null,
+  });
+  // reflections live on the kart materials only (null until the env loads;
+  // applyEnvToKarts patches karts built before then) — never scene.environment
+  for (const m of [paint, accentPaint, chrome, carbon]) m.envMap = ENV_MAP;
 
   // chassis subgroup: lean/squash animate this, wheels stay on the road
   const bodyTilt = new THREE.Group();
   group.add(bodyTilt);
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.42, 0.92), mat);
-  body.position.y = 0.42;
-  bodyTilt.add(body);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.55), accentMat);
-  nose.position.set(0.95, 0.38, 0);
-  bodyTilt.add(nose);
-  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.95), accentMat);
-  spoiler.position.set(-0.78, 0.72, 0);
-  bodyTilt.add(spoiler);
+  // low wide floor pan + a rear engine cowl give a planted, sleek silhouette
+  const floor = new THREE.Mesh(new RoundedBoxGeometry(1.78, 0.2, 1.0, 4, 0.06), paint);
+  floor.position.y = 0.34;
+  bodyTilt.add(floor);
+  const cowl = new THREE.Mesh(new RoundedBoxGeometry(0.92, 0.3, 0.62, 4, 0.09), paint);
+  cowl.position.set(-0.28, 0.52, 0);
+  bodyTilt.add(cowl);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.24, 9);
-  wheelGeo.rotateX(Math.PI / 2); // axle along local z; spin = rotation.z
-  const hubGeo = new THREE.BoxGeometry(0.5, 0.09, 0.26);
-  const hubMat = new THREE.MeshStandardMaterial({ color: '#5a6170', roughness: 0.6 });
-  const wheels: { mesh: THREE.Mesh; front: boolean }[] = [];
+  // pointed nose: a 4-sided pyramid flattened into a wedge
+  const noseGeo = new THREE.ConeGeometry(0.4, 0.82, 4);
+  noseGeo.rotateY(Math.PI / 4); // square faces aligned to the axes
+  noseGeo.rotateZ(-Math.PI / 2); // apex -> +x (forward)
+  const nose = new THREE.Mesh(noseGeo, accentPaint);
+  nose.scale.set(1, 0.5, 0.95);
+  nose.position.set(1.0, 0.34, 0);
+  bodyTilt.add(nose);
+
+  // side pods flanking the cockpit — the shape that kills the "shoebox" read
+  for (const sz of [0.5, -0.5]) {
+    const pod = new THREE.Mesh(new RoundedBoxGeometry(0.66, 0.22, 0.24, 3, 0.07), paint);
+    pod.position.set(0.06, 0.33, sz);
+    bodyTilt.add(pod);
+  }
+
+  // carbon cockpit halo, rear wing on uprights, raked diffuser
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 8, 20), carbon);
+  halo.rotation.x = Math.PI / 2;
+  halo.position.set(0.04, 0.5, 0);
+  bodyTilt.add(halo);
+  const wing = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.04, 1.04, 2, 0.02), accentPaint);
+  wing.position.set(-0.86, 0.74, 0);
+  bodyTilt.add(wing);
+  for (const sz of [0.34, -0.34]) {
+    const up = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.05), carbon);
+    up.position.set(-0.84, 0.56, sz);
+    bodyTilt.add(up);
+  }
+  const diffuser = new THREE.Mesh(new RoundedBoxGeometry(0.4, 0.14, 0.92, 2, 0.04), carbon);
+  diffuser.rotation.z = -0.22;
+  diffuser.position.set(-0.84, 0.2, 0);
+  bodyTilt.add(diffuser);
+
+  // wheels: rubber tire + chrome rim + a spoke bar so the spin reads. Each is a
+  // Group (the rig only sets .rotation.z/.y on it) kept in `group`, not
+  // `bodyTilt`, so the suspension squash never lifts the wheels off the road.
+  const R = 0.32; // larger wheels; the roll-rate divisor in updateRace matches
+  const tireGeo = new THREE.CylinderGeometry(R, R, 0.3, 20);
+  tireGeo.rotateX(Math.PI / 2); // axle along local z; spin = rotation.z
+  const rimGeo = new THREE.CylinderGeometry(R * 0.62, R * 0.62, 0.32, 20);
+  rimGeo.rotateX(Math.PI / 2);
+  const spokeGeo = new THREE.BoxGeometry(R * 1.25, 0.06, 0.34);
+  const wheels: { mesh: THREE.Object3D; front: boolean }[] = [];
   for (const [wx, wz] of [
     [0.55, 0.52],
     [0.55, -0.52],
     [-0.55, 0.52],
     [-0.55, -0.52],
   ] as const) {
-    const w = new THREE.Mesh(wheelGeo, dark);
+    const w = new THREE.Group();
     w.rotation.order = 'YZX'; // steer yaw first, then roll about the axle
-    w.position.set(wx, 0.28, wz);
-    w.add(new THREE.Mesh(hubGeo, hubMat)); // spoke bar makes the spin visible
+    w.position.set(wx, R, wz);
+    w.add(new THREE.Mesh(tireGeo, rubber));
+    w.add(new THREE.Mesh(rimGeo, chrome));
+    w.add(new THREE.Mesh(spokeGeo, chrome)); // spoke bar makes the spin visible
     group.add(w);
     wheels.push({ mesh: w, front: wx > 0 });
   }
 
+  // driver: smaller and lower than before so the kart, not the driver, is hero
   const headMat = new THREE.MeshStandardMaterial({ color: '#f2c8a0', roughness: 0.8 });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.5), dark);
-  torso.position.set(-0.15, 0.78, 0);
+  const torso = new THREE.Mesh(new RoundedBoxGeometry(0.36, 0.34, 0.44, 2, 0.06), trim);
+  torso.position.set(-0.1, 0.62, 0);
   bodyTilt.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), headMat);
-  head.position.set(-0.15, 1.12, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 12), headMat);
+  head.position.set(-0.1, 0.92, 0);
   bodyTilt.add(head);
   const helmet = new THREE.Mesh(
-    new THREE.SphereGeometry(0.25, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.6),
-    mat,
+    new THREE.SphereGeometry(0.2, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    paint,
   );
-  helmet.position.set(-0.15, 1.14, 0);
+  helmet.position.set(-0.1, 0.93, 0);
   bodyTilt.add(helmet);
 
   // real shadows from the sun replace the old blob-shadow disc
   group.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
   });
+
+  // livery side decals — skipped on the classic single-tone look (accent ==
+  // primary). Flat overlays tinted by the accent color; added after the shadow
+  // traverse so they neither cast shadow nor z-fight the side pods.
+  const decalTex = look.accent !== look.primary ? detailMaps()?.decal : null;
+  if (decalTex) {
+    const decalMat = new THREE.MeshStandardMaterial({
+      map: decalTex,
+      color: look.accent,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      roughness: 0.6,
+      metalness: 0,
+      envMapIntensity: 0,
+    });
+    for (const sz of [0.63, -0.63] as const) {
+      const d = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.42), decalMat);
+      d.position.set(0.06, 0.4, sz);
+      d.rotation.y = sz > 0 ? 0 : Math.PI; // face outward on each flank
+      bodyTilt.add(d);
+    }
+  }
 
   // colors pushed past 1.0 render as HDR and pick up bloom
   const flame = new THREE.Mesh(
@@ -759,6 +916,8 @@ export class GameScene {
   private camera: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
+  /** PMREM-filtered studio env for clearcoat reflections; shared, scene-owned. */
+  private envTexture: THREE.Texture | null = null;
 
   private world: THREE.Group | null = null;
   private worldTrackId: string | null = null;
@@ -871,9 +1030,60 @@ export class GameScene {
       this.scene.add(oil);
     }
 
+    this.loadEnvironment();
     this.setTrack(getTrack(undefined));
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  /**
+   * Soft studio environment for clearcoat kart reflections. Loaded once and
+   * reused across every track/race — marked `userData.shared` so the per-kart
+   * `disposeTree` never frees it. It's applied per-material to the kart paint
+   * (see buildKart / applyEnvToKarts), NOT to `scene.environment`: a global
+   * env would light the entire track via IBL and wash the scene out. Async —
+   * paint reads matte until it lands, which looks fine.
+   */
+  private loadEnvironment(): void {
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    new THREE.TextureLoader().load(
+      '/textures/env_studio.png',
+      (eq) => {
+        eq.mapping = THREE.EquirectangularReflectionMapping;
+        eq.colorSpace = THREE.SRGBColorSpace;
+        const rt = pmrem.fromEquirectangular(eq);
+        rt.texture.userData.shared = true;
+        ENV_MAP = rt.texture;
+        this.envTexture = rt.texture;
+        this.applyEnvToKarts(); // patch karts/ghost built before the env loaded
+        eq.dispose();
+        pmrem.dispose();
+      },
+      undefined,
+      () => pmrem.dispose(), // asset missing in dev: skip reflections, no crash
+    );
+  }
+
+  /**
+   * Assign the reflection env to existing kart materials. New karts pick it up
+   * in buildKart; this only covers karts/the ghost built before the async env
+   * finished loading. Confined to karts so the track lighting is untouched.
+   */
+  private applyEnvToKarts(): void {
+    const patch = (root: THREE.Object3D | undefined): void => {
+      root?.traverse((o) => {
+        const mm = (o as THREE.Mesh).material;
+        if (!mm) return;
+        for (const mat of Array.isArray(mm) ? mm : [mm]) {
+          if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+            (mat as THREE.MeshStandardMaterial).envMap = ENV_MAP;
+            mat.needsUpdate = true;
+          }
+        }
+      });
+    };
+    for (const k of this.karts) patch(k.group);
+    patch(this.ghost?.group);
   }
 
   get currentTrackId(): string {
@@ -1859,7 +2069,7 @@ export class GameScene {
       if (dYaw < -Math.PI) dYaw += Math.PI * 2;
       v.prevHeading = k.headingRad;
       const yawRate = dYaw / Math.max(dt, 1 / 240);
-      const roll = (k.speed * 60 * dt) / 0.28; // radians of wheel this frame
+      const roll = (k.speed * 60 * dt) / 0.32; // radians of wheel this frame (wheel radius)
       const steerTarget = THREE.MathUtils.clamp(yawRate / 3.4, -0.42, 0.42);
       v.steer += (steerTarget - v.steer) * Math.min(1, dt * 12);
       for (const w of v.wheels) {
