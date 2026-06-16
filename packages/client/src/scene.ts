@@ -166,34 +166,104 @@ function kerbTexture(): THREE.Texture {
   return tex;
 }
 
-/** Subtle grain multiplied over road/dirt colors (linear: values ~0.92..1). */
-function grainTexture(): THREE.Texture {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 128;
-  const g = c.getContext('2d')!;
-  const img = g.createImageData(128, 128);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = 235 + Math.floor(Math.random() * 21);
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-    img.data[i + 3] = 255;
+interface SurfaceMaps {
+  map: THREE.Texture;
+  normal: THREE.Texture;
+}
+const SURFACE_CACHE = new Map<string, SurfaceMaps>();
+
+/**
+ * Shared, scene-owned surface textures (lazy, cached by URL, reused across every
+ * world/decor rebuild). Higgsfield ships only the colour map; the tangent-space
+ * normal map is derived in-canvas from luminance height, so the surface actually
+ * catches the sun. Marked `userData.shared` so `disposeTree` never frees these
+ * when a track's world group is torn down between races.
+ *
+ * `lift` raises the colour toward white (0 = untouched, 1 = pure white): a dark
+ * photographic albedo multiplied by a theme tint would crush every track to the
+ * same near-black, so we lift the colour and let the *normal* map carry the
+ * relief while the theme colour keeps the palette. `repeat`/`repeatY` is the UV
+ * tiling — world-coordinate UVs on the ground (small values), 0..1 on decor.
+ */
+function surfaceMaps(
+  url: string,
+  opts: { repeat?: number; repeatY?: number; lift?: number; normalStrength?: number } = {},
+): SurfaceMaps | null {
+  if (typeof document === 'undefined') return null; // node/test: no DOM
+  const hit = SURFACE_CACHE.get(url);
+  if (hit) return hit;
+  const mapCanvas = document.createElement('canvas');
+  const nrmCanvas = document.createElement('canvas');
+  const map = new THREE.CanvasTexture(mapCanvas);
+  const normal = new THREE.CanvasTexture(nrmCanvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  normal.colorSpace = THREE.NoColorSpace;
+  const rx = opts.repeat ?? 1;
+  const ry = opts.repeatY ?? rx;
+  for (const t of [map, normal]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rx, ry);
+    t.anisotropy = 8;
+    t.userData.shared = true;
   }
-  g.putImageData(img, 0, 0);
-  // broad worn patches
-  for (let i = 0; i < 6; i++) {
-    const x = (i * 47) % 128;
-    const y = (i * 83) % 128;
-    const grad = g.createRadialGradient(x, y, 0, x, y, 34);
-    grad.addColorStop(0, 'rgba(0,0,0,0.06)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 128);
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(0.1, 0.1);
-  return tex;
+  const img = new Image();
+  img.onload = () => {
+    const size = img.width || 512;
+    mapCanvas.width = mapCanvas.height = size;
+    const mg = mapCanvas.getContext('2d');
+    if (!mg) return;
+    mg.drawImage(img, 0, 0, size, size);
+    const src = mg.getImageData(0, 0, size, size);
+
+    // normal map from luminance height — computed at <=512 (cheap, one-shot) and
+    // wrapped at the edges so it stays tileable like the colour map
+    const nsize = Math.min(size, 512);
+    nrmCanvas.width = nrmCanvas.height = nsize;
+    const ng = nrmCanvas.getContext('2d');
+    if (ng) {
+      ng.drawImage(img, 0, 0, nsize, nsize);
+      const ndata = ng.getImageData(0, 0, nsize, nsize).data;
+      const lum = new Float32Array(nsize * nsize);
+      for (let i = 0; i < nsize * nsize; i++) {
+        lum[i] = (ndata[i * 4]! * 0.299 + ndata[i * 4 + 1]! * 0.587 + ndata[i * 4 + 2]! * 0.114) / 255;
+      }
+      const strength = opts.normalStrength ?? 2;
+      const at = (x: number, y: number) => lum[((y + nsize) % nsize) * nsize + ((x + nsize) % nsize)]!;
+      const out = ng.createImageData(nsize, nsize);
+      for (let y = 0; y < nsize; y++) {
+        for (let x = 0; x < nsize; x++) {
+          const dx = (at(x - 1, y) - at(x + 1, y)) * strength;
+          // +Y points up in OpenGL tangent space (THREE's convention), so the
+          // green channel encodes -dh/dV — invert the row difference accordingly
+          const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+          const inv = 1 / Math.hypot(dx, dy, 1);
+          const j = (y * nsize + x) * 4;
+          out.data[j] = (dx * inv * 0.5 + 0.5) * 255;
+          out.data[j + 1] = (dy * inv * 0.5 + 0.5) * 255;
+          out.data[j + 2] = (inv * 0.5 + 0.5) * 255;
+          out.data[j + 3] = 255;
+        }
+      }
+      ng.putImageData(out, 0, 0);
+      normal.needsUpdate = true;
+    }
+
+    // lift the colour toward white so a theme-tinted surface keeps its palette
+    if (opts.lift) {
+      const k = opts.lift;
+      for (let i = 0; i < src.data.length; i += 4) {
+        src.data[i] = 255 - (255 - src.data[i]!) * (1 - k);
+        src.data[i + 1] = 255 - (255 - src.data[i + 1]!) * (1 - k);
+        src.data[i + 2] = 255 - (255 - src.data[i + 2]!) * (1 - k);
+      }
+      mg.putImageData(src, 0, 0);
+    }
+    map.needsUpdate = true;
+  };
+  img.src = url;
+  const result = { map, normal };
+  SURFACE_CACHE.set(url, result);
+  return result;
 }
 
 /** Procedural sponsor lockup: accent disc with the initial + the wordmark. */
@@ -1318,14 +1388,25 @@ export class GameScene {
     ground.name = 'ground';
     g.add(ground);
 
-    // shared world-space grain: both materials read it through texture.repeat,
-    // and both geometry paths emit world-coordinate UVs
-    const grain = grainTexture();
-    const dirtMat = new THREE.MeshStandardMaterial({ color: th.dirt, roughness: 1, map: grain });
+    // PBR surface textures (shared, normal-mapped). Both geometry paths emit
+    // world-coordinate UVs, so texture .repeat sets the real-world tile size.
+    // The albedo is lifted toward white (see surfaceMaps) so the per-theme tint
+    // survives the multiply; the derived normal map carries the actual relief.
+    const asph = surfaceMaps('/textures/surf_asphalt.png', { repeat: 0.16, lift: 0.85, normalStrength: 2.4 });
+    const drt = surfaceMaps('/textures/surf_dirt.png', { repeat: 0.13, lift: 0.8, normalStrength: 2.8 });
+    const dirtMat = new THREE.MeshStandardMaterial({
+      color: th.dirt,
+      roughness: 1,
+      map: drt?.map ?? null,
+      normalMap: drt?.normal ?? null,
+      normalScale: new THREE.Vector2(0.7, 0.7),
+    });
     const asphaltMat = new THREE.MeshStandardMaterial({
       color: th.asphalt,
-      roughness: 0.95,
-      map: grain,
+      roughness: 0.92,
+      map: asph?.map ?? null,
+      normalMap: asph?.normal ?? null,
+      normalScale: new THREE.Vector2(0.55, 0.55),
     });
 
     if (track.hasHills) {
@@ -1895,11 +1976,26 @@ export class GameScene {
   /** Theme decor scattered just outside the fence, deterministically per vertex. */
   private buildDecor(g: THREE.Group, track: TrackRuntime): void {
     const th = track.def.theme;
+    // textured decor: colour comes from the photo (material colour ~white so the
+    // map shows natural), relief from the derived normal map. Snow foliage keeps
+    // a tinted white material and borrows only the leaf normal (frosted, not green).
+    const bark = surfaceMaps('/textures/decor_bark.png', { repeat: 2, repeatY: 2, normalStrength: 2.2 });
+    const foliage = surfaceMaps('/textures/decor_foliage.png', { repeat: 1.6, normalStrength: 1.4 });
+    const cactusTex = surfaceMaps('/textures/decor_cactus.png', { repeat: 2, repeatY: 3, normalStrength: 1.6 });
+    const rockTex = surfaceMaps('/textures/decor_rock.png', { repeat: 1.4, normalStrength: 2.6 });
     const mats = {
-      trunk: new THREE.MeshStandardMaterial({ color: '#6b4a2c', roughness: 1 }),
-      leafGreen: new THREE.MeshStandardMaterial({ color: '#2f7a3a', roughness: 1 }),
-      leafSnow: new THREE.MeshStandardMaterial({ color: '#dfeaf4', roughness: 1 }),
-      cactus: new THREE.MeshStandardMaterial({ color: '#4e8f3c', roughness: 0.9 }),
+      trunk: new THREE.MeshStandardMaterial({
+        color: '#ffffff', roughness: 0.95, map: bark?.map ?? null, normalMap: bark?.normal ?? null,
+      }),
+      leafGreen: new THREE.MeshStandardMaterial({
+        color: '#ffffff', roughness: 0.85, map: foliage?.map ?? null, normalMap: foliage?.normal ?? null,
+      }),
+      leafSnow: new THREE.MeshStandardMaterial({
+        color: '#e8f1fb', roughness: 0.7, normalMap: foliage?.normal ?? null,
+      }),
+      cactus: new THREE.MeshStandardMaterial({
+        color: '#ffffff', roughness: 0.7, map: cactusTex?.map ?? null, normalMap: cactusTex?.normal ?? null,
+      }),
       neonA: new THREE.MeshStandardMaterial({
         color: '#ff2e88',
         emissive: '#ff2e88',
@@ -1910,7 +2006,9 @@ export class GameScene {
         emissive: '#21e6c1',
         emissiveIntensity: 2.6,
       }),
-      rock: new THREE.MeshStandardMaterial({ color: '#8d7a5c', roughness: 1 }),
+      rock: new THREE.MeshStandardMaterial({
+        color: '#ffffff', roughness: 1, map: rockTex?.map ?? null, normalMap: rockTex?.normal ?? null,
+      }),
     };
     this.neonMats = [mats.neonA, mats.neonB]; // pulsed each frame on night tracks
 
@@ -1936,29 +2034,56 @@ export class GameScene {
       switch (th.decor) {
         case 'trees':
         case 'snow': {
-          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * s, 0.4 * s, 2.2 * s, 8), mats.trunk);
-          trunk.position.y = 1.1 * s;
-          const leaf = new THREE.Mesh(
-            new THREE.ConeGeometry(1.8 * s, 4.4 * s, 10),
-            th.decor === 'snow' ? mats.leafSnow : mats.leafGreen,
-          );
-          leaf.position.y = 4.0 * s;
-          obj.add(trunk, leaf);
+          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * s, 0.34 * s, 2.6 * s, 9), mats.trunk);
+          trunk.position.y = 1.3 * s;
+          // overlapping faceted blobs read as a full, organic canopy — the
+          // single cone looked like a toy Christmas tree
+          const leafMat = th.decor === 'snow' ? mats.leafSnow : mats.leafGreen;
+          const blob = (r: number, x: number, y: number, z: number): THREE.Mesh => {
+            const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * s, 1), leafMat);
+            m.position.set(x * s, y * s, z * s);
+            m.rotation.set(i, i * 0.7, 0); // hide the shared facet seam per instance
+            return m;
+          };
+          obj.add(trunk, blob(1.9, 0, 4.3, 0), blob(1.25, 1.1, 3.5, 0.4), blob(1.2, -1.0, 3.7, -0.5));
           break;
         }
         case 'cacti': {
           if (i % 3 === 0) {
-            const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.4 * s, 0), mats.rock);
-            rock.position.y = 0.7 * s;
+            // lumpy boulder, squashed and rotated per instance for variety
+            const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4 * s, 1), mats.rock);
+            rock.scale.set(1, 0.72, 0.9 + ((i * 7) % 5) / 20);
+            rock.rotation.set(i * 0.3, i, i * 0.2);
+            rock.position.y = 0.85 * s;
             obj.add(rock);
           } else {
-            const bodyC = new THREE.Mesh(new THREE.CylinderGeometry(0.55 * s, 0.65 * s, 4.4 * s, 8), mats.cactus);
-            bodyC.position.y = 2.2 * s;
-            const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * s, 0.3 * s, 1.6 * s, 8), mats.cactus);
-            armL.position.set(0.85 * s, 2.6 * s, 0);
-            const armR = armL.clone();
-            armR.position.set(-0.85 * s, 1.9 * s, 0);
-            obj.add(bodyC, armL, armR);
+            // rounded cap so the body doesn't read as a cut pipe
+            const cap = (r: number, y: number): THREE.Mesh => {
+              const m = new THREE.Mesh(
+                new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+                mats.cactus,
+              );
+              m.position.y = y;
+              return m;
+            };
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5 * s, 0.62 * s, 4.2 * s, 12), mats.cactus);
+            body.position.y = 2.1 * s;
+            obj.add(body, cap(0.5 * s, 4.2 * s));
+            // saguaro arm: an elbow that turns up, capped — not a stick poking out
+            const arm = (dir: number, baseY: number): THREE.Group => {
+              const a = new THREE.Group();
+              const horiz = new THREE.Mesh(new THREE.CylinderGeometry(0.24 * s, 0.27 * s, 1.1 * s, 10), mats.cactus);
+              horiz.rotation.z = Math.PI / 2;
+              horiz.position.set(dir * 0.55 * s, 0, 0);
+              const vert = new THREE.Mesh(new THREE.CylinderGeometry(0.24 * s, 0.24 * s, 1.5 * s, 10), mats.cactus);
+              vert.position.set(dir * 1.05 * s, 0.75 * s, 0);
+              const tip = cap(0.24 * s, 1.5 * s);
+              tip.position.x = dir * 1.05 * s;
+              a.add(horiz, vert, tip);
+              a.position.y = baseY;
+              return a;
+            };
+            obj.add(arm(1, 2.7 * s), arm(-1, 2.0 * s));
           }
           break;
         }
