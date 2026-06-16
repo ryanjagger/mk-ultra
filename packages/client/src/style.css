@@ -394,6 +394,8 @@ input:focus { border-color: var(--accent); }
   left: 50%; top: 34%; transform: translate(-50%, -50%); font-size: 140px; font-weight: 900; font-style: italic;
   color: var(--accent); text-shadow: 0 12px 50px rgba(0,0,0,0.8); animation: pop 0.9s ease both;
 }
+/* the pre-GO "GET READY" prompt: same slot, sized to fit a word not a digit */
+#hud-countdown.ready { font-size: 52px; letter-spacing: 0.04em; white-space: nowrap; }
 #hud-wait { left: 50%; top: 14%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 10px; font-size: 14px; }
 #hud-desync {
   left: 50%; top: 0; transform: translateX(-50%); background: var(--accent2); color: #fff;
