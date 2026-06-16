@@ -107,28 +107,40 @@ function chevronTexture(): THREE.Texture {
   return tex;
 }
 
+let CLOUD_TEX: THREE.CanvasTexture | null = null;
+/**
+ * Soft cumulus sprite: a white-on-black cloud render keyed to alpha by
+ * brightness, so the black background drops out and the puffy edges feather.
+ * Loaded once and shared across every drifting cloud sprite (and track rebuild).
+ */
 function cloudTexture(): THREE.Texture {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
-  const g = c.getContext('2d')!;
-  // overlapping soft blobs read as one cumulus puff
-  const blobs: [number, number, number][] = [
-    [70, 80, 38],
-    [110, 64, 46],
-    [150, 78, 40],
-    [185, 88, 30],
-    [120, 92, 50],
-  ];
-  for (const [x, y, r] of blobs) {
-    const grad = g.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, 'rgba(255,255,255,0.85)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 256, 128);
+  if (CLOUD_TEX) return CLOUD_TEX;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 288;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = 'rgba(0,0,0,0)'; // start transparent until the render lands
+    ctx.fillRect(0, 0, 512, 288);
   }
-  const tex = new THREE.CanvasTexture(c);
+  const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.userData.shared = true;
+  const img = new Image();
+  img.onload = () => {
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const d = g.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < d.data.length; i += 4) {
+      // alpha from brightness: black bg -> transparent, soft edges -> feathered
+      d.data[i + 3] = Math.max(d.data[i]!, d.data[i + 1]!, d.data[i + 2]!);
+    }
+    g.putImageData(d, 0, 0);
+    tex.needsUpdate = true;
+  };
+  img.src = '/textures/sky_cloud.png';
+  CLOUD_TEX = tex;
   return tex;
 }
 
@@ -1377,7 +1389,7 @@ export class GameScene {
         );
         cloud.position.set(Math.cos(a) * rh, y, Math.sin(a) * rh);
         const w = 110 + ((i * 41) % 80);
-        cloud.scale.set(w, w * 0.45, 1);
+        cloud.scale.set(w, w * 0.52, 1); // match the cloud sprite's 16:9-ish aspect
         spin.add(cloud);
       }
       sky.add(spin);
