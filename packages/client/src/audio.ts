@@ -66,7 +66,6 @@ export class AudioEngine {
   private windFilter: BiquadFilterNode | null = null;
   private windGain: GainNode | null = null;
   private squealGain: GainNode | null = null;
-  private crowdGain: GainNode | null = null;
   private whooshGain: GainNode | null = null;
   private whooshBp: BiquadFilterNode | null = null;
   private whooshPrevDist = -1;
@@ -285,19 +284,6 @@ export class AudioEngine {
     squeal.connect(bp).connect(this.squealGain).connect(this.master!);
     squeal.start();
 
-    // crowd murmur, swelling near the grandstand at the start line
-    const crowd = ctx.createBufferSource();
-    crowd.buffer = this.noise!;
-    crowd.loop = true;
-    const crowdBp = ctx.createBiquadFilter();
-    crowdBp.type = 'bandpass';
-    crowdBp.frequency.value = 740;
-    crowdBp.Q.value = 0.7;
-    this.crowdGain = ctx.createGain();
-    this.crowdGain.gain.value = 0;
-    crowd.connect(crowdBp).connect(this.crowdGain).connect(this.master!);
-    crowd.start();
-
     // shell flyby whoosh, doppler-bent by the closing speed
     const whoosh = ctx.createBufferSource();
     whoosh.buffer = this.noise!;
@@ -393,21 +379,13 @@ export class AudioEngine {
     this.prevPhase = st.phase;
   }
 
-  /** Distance-driven continuous voices: grandstand crowd, shell flybys. */
+  /** Distance-driven continuous voices: shell flybys. */
   private updateProximityVoices(st: GameState, you: number): void {
-    if (!this.crowdGain || !this.whooshGain || !this.whooshBp) return;
+    if (!this.whooshGain || !this.whooshBp) return;
     const t = this.ctx!.currentTime;
     const me = st.karts[you]!;
     const mx = fxToFloat(me.x);
     const my = fxToFloat(me.y);
-
-    // the crowd swells as you pass the stand and goes wild at the flag
-    const gate = st.track.gates[0]!;
-    const dGate = Math.hypot(fxToFloat(gate.cx) - mx, fxToFloat(gate.cy) - my);
-    const near = Math.max(0, 1 - dGate / 55);
-    const base = st.phase === PHASE_FINISHED ? 0.5 : near * near;
-    const wobble = 0.78 + 0.14 * Math.sin(t * 5.1) + 0.08 * Math.sin(t * 13.7);
-    this.crowdGain.gain.setTargetAtTime(0.4 * base * wobble, t, 0.08);
 
     // nearest live shell drives the whoosh
     let best = Infinity;
