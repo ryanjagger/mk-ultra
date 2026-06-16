@@ -15,6 +15,125 @@ padded one.
 
 ---
 
+## 2026-06-16
+
+### Progress
+
+- **Premium visual overhaul (PR #11) merged → `main`** at 11:16 (`4de8220`),
+  which auto-deploys — the render-only work logged yesterday is now live.
+- **ElevenLabs sound effects, shipped as PR #12** (merged 17:52):
+  - `5475814` add and wire real ElevenLabs SFX; `60145f4` rip out the old
+    synthesized crowd voice it replaces.
+  - Countdown audio polish: `74b424a` hold the countdown at "GET READY" through
+    the start buffer instead of advancing early; `9fae777` sync the chime to the
+    on-screen digits so sound and visuals line up.
+- **Battle mode: swap balloons for shields, shipped as PR #13** (`0a45e28`,
+  merged 17:57).
+- **Home / lobby UI:** `327f706` make the lobby card work in landscape;
+  `17fc632` give the leaderboards card its own flex column on wide home screens
+  (wraps below on narrow) and promote the driver card's title to an `<h3>` so it
+  matches the other cards' headers.
+
+### AI interactions that accelerated learning
+
+- **"I don't see my changes" diagnosed by evidence, not guesswork.** Instead of
+  assuming, checked `lsof` for listening ports (both :5173 vite-dev and :8080
+  built-server were up) and grepped the built `dist/index.html` for the new
+  markup. That pinned it to a *stale build artifact on :8080* rather than a
+  caching/refresh issue, and the fix (rebuild client) fell straight out of the
+  evidence.
+
+### Challenges → solutions
+
+- **Edited source, changes invisible in the browser → stale `dist/` served on
+  :8080.** Root cause: `pnpm start` serves the built bundle from
+  `packages/client/dist/` (a gitignored artifact), and editing source never
+  rebuilds it — so :8080 kept serving the old `index.html`. Fix:
+  `pnpm --filter @mk/client build`; the static server picks up the new file on
+  the next request, no restart needed. Lesson: on :8080 you're looking at a
+  *build*; iterate on the :5173 dev tab where HMR reflects source directly.
+
+## 2026-06-15
+
+### Progress
+
+- **Premium visual overhaul — render-only, shipped as PR #11** (merged → `main`
+  the next morning, auto-deploys). Six commits, all in
+  `packages/client/src/scene.ts` + new tiling/sprite textures; `sim` untouched,
+  suite green throughout (157 sim / 11 client / 16 server).
+  - **Karts** (`0f79326`): remodeled geometry (lower/wider stance, side pods,
+    rear wing, spoked wheels) + clearcoat `MeshPhysicalMaterial` paint + PMREM
+    studio reflections applied *per-material* (never `scene.environment`) +
+    carbon/livery decals.
+  - **Surfaces + decor** (`e45cb1f`): tiling asphalt/dirt albedo with
+    in-canvas-derived normal maps; trees/cacti/rocks remodeled + AI
+    bark/foliage/cactus/rock textures.
+  - **Walls** (`8362d23`): concrete-barrier texture + normal, tinted per theme
+    via `wallA`/`wallB`; night themes keep their emissive glow.
+  - **Ground + hardening** (`ff88524`): grass/sand/snow biome detail tinted by
+    `th.ground`, picked by decor type; ground circle re-UV'd to world coords so
+    it tiles at the apron scale.
+  - **Sky** (`3d17e1a`): soft cumulus sprite (white-on-black render keyed to
+    alpha by brightness) replacing the procedural cloud blobs.
+  - **Env-map scope fix** (`73954bd`): PR-review follow-up (below).
+- Filed **#10** (desert road renders dark) as a known follow-up after it
+  resisted every fix.
+
+### AI interactions that accelerated learning
+
+- **Higgsfield MCP as a parallel texture factory.** Fired all 6 tiling textures
+  in one batch, polled, then resized + `pngquant`'d (6 MB → 1.6 MB). The
+  repeatable pipeline — generate a grayscale albedo → derive a tangent-space
+  normal in-canvas (Sobel on luminance) → lift the albedo mean so a theme tint
+  survives the multiply — let geometry + one texture carry every theme without
+  hand-authoring per-biome art.
+- **Debug rendered *pixels*, not impressions, via `window.__mkScene`.** Bright
+  sand next to a dark road fooled the eye; dumping the framebuffer to BMP and
+  reading medians over a sample grid — plus reading the live material's
+  color/map-canvas pixels/normals through the debug hook — turned "looks dark"
+  into hard numbers and proved the asphalt material was healthy.
+- **Time-wasters worth recording:** (1) chasing the desert-road darkness through
+  remote screenshot→rebuild→measure loops — each lighting hypothesis cost a full
+  build+browser cycle, and remote poking fundamentally can't root-cause a shader
+  interaction; (2) repeatedly sampling the kart's *own* cast shadow in the
+  lower-center of frames and misreading it as "black road." Both say: pick the
+  right tool (local frame capture) and confirm *what* a pixel is before
+  measuring it.
+
+### Challenges → solutions
+
+- **Tree canopies rendered black → inverted normal-map green channel.**
+  Flat-color grass stayed bright under the same sun. Root cause: the in-canvas
+  Sobel encoded `+∂h/∂V`, but THREE's OpenGL tangent convention wants `−∂h/∂V`,
+  so canopy-top normals tilted *away* from the sun. Fix: negate the row
+  difference (`dy`). The grass-bright / trees-dark contrast under identical light
+  is what isolated the normal map as the culprit.
+- **Roads crushed to near-black by the tint multiply → lift the albedo.** A dark
+  photographic albedo × theme color = near-black on every track. Fix: lift the
+  albedo mean toward white in-canvas so `themeColor × map ≈ themeColor`, and let
+  the normal map carry the relief — one texture then serves all 6 palettes.
+- **Desert road renders *pure* black, immune to lighting → #10.** The asphalt
+  material is provably healthy (light-grey map canvas, up-facing normals,
+  `metalness 0`, glows green when forced emissive) yet its lit diffuse is ~0 on
+  the desert theme only. Pixel-measured ruling-out: base color, sun elevation
+  (22→52°), a 4.0 hemi flood (blew out the sand, not the road), directional
+  shadows — none moved it. The one lever that did: forcing a GPU texture
+  re-upload (`needsUpdate`) lifted it off black, pointing at a
+  texture-upload/shader interaction, not the lighting model. Couldn't root-cause
+  through the remote loop; filed #10 with that lead. Lesson: a shader-level
+  render bug needs local frame-capture tooling — recognize the wrong tool sooner.
+- **`surfaceMaps` could flash black during load → neutral placeholder.** A
+  `CanvasTexture` built from an empty default canvas samples transparent-black,
+  zeroing albedo until `onload` lands. Hardened by seeding both canvases with
+  mid-grey / flat-normal before the async image load (also de-risked the desert
+  ground, which renders fine).
+- **PR review (Codex): env patch hit unintended materials.**
+  `applyEnvToKarts` set `envMap` on *every* `MeshStandardMaterial` on a cold
+  load, but `buildKart` only opts paint/accent/chrome/carbon in — so on a slow
+  env load, rubber/skin/balloons got reflections that warm-loaded karts never
+  get. Fix: tag the eligible set with `userData.env` and patch only tagged
+  materials, making both build paths consistent.
+
 ## 2026-06-14
 
 ### Progress
