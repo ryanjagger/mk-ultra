@@ -194,6 +194,18 @@ function surfaceMaps(
   if (hit) return hit;
   const mapCanvas = document.createElement('canvas');
   const nrmCanvas = document.createElement('canvas');
+  // neutral placeholder so the surface never renders against an EMPTY (black)
+  // GPU texture during the async image load — a default-empty CanvasTexture
+  // samples as transparent-black, which zeroes the albedo and renders the
+  // surface black until onload lands. Mid-grey map + flat (0,0,1) normal.
+  for (const [cv, fill] of [[mapCanvas, '#9a9a9a'], [nrmCanvas, '#8080ff']] as const) {
+    cv.width = cv.height = 4;
+    const g = cv.getContext('2d');
+    if (g) {
+      g.fillStyle = fill;
+      g.fillRect(0, 0, 4, 4);
+    }
+  }
   const map = new THREE.CanvasTexture(mapCanvas);
   const normal = new THREE.CanvasTexture(nrmCanvas);
   map.colorSpace = THREE.SRGBColorSpace;
@@ -1379,10 +1391,34 @@ export class GameScene {
     const th = track.def.theme;
     g.add(this.buildSky(track));
 
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(700, 48),
-      new THREE.MeshStandardMaterial({ color: th.ground, roughness: 1 }),
-    );
+    // surrounding terrain: a biome detail (grass/sand/snow) tinted by th.ground,
+    // picked by decor type. Neon themes keep their flat dark ground. Lifted high
+    // so the ground colour survives the multiply; normal map adds gentle relief.
+    const GROUND_BIOME: Record<string, string> = { trees: 'grass', snow: 'snow', cacti: 'sand' };
+    const biome = GROUND_BIOME[th.decor];
+    const groundTex = biome
+      ? surfaceMaps(`/textures/ground_${biome}.png`, { repeat: 0.05, lift: 0.7, normalStrength: 1.5 })
+      : null;
+    const groundMat = (): THREE.MeshStandardMaterial =>
+      new THREE.MeshStandardMaterial({
+        color: th.ground,
+        roughness: 1,
+        map: groundTex?.map ?? null,
+        normalMap: groundTex?.normal ?? null,
+        normalScale: new THREE.Vector2(0.5, 0.5),
+      });
+
+    // world-coordinate UVs (matching the apron strips) so one .repeat sets the
+    // real-world tile size across the whole surrounding plane
+    const groundGeo = new THREE.CircleGeometry(700, 48);
+    const gp = groundGeo.getAttribute('position');
+    const guv = new Float32Array(gp.count * 2);
+    for (let i = 0; i < gp.count; i++) {
+      guv[i * 2] = gp.getX(i);
+      guv[i * 2 + 1] = gp.getY(i);
+    }
+    groundGeo.setAttribute('uv', new THREE.BufferAttribute(guv, 2));
+    const ground = new THREE.Mesh(groundGeo, groundMat());
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.06;
     ground.name = 'ground';
@@ -1450,7 +1486,7 @@ export class GameScene {
       // ground aprons: corridor elevation falls off smoothly to the valley
       // floor on both sides (same cosine the Terrain sampler uses, so decor
       // placed on it stands flush)
-      const apronMat = new THREE.MeshStandardMaterial({ color: th.ground, roughness: 1 });
+      const apronMat = groundMat();
       const apron = (fence: Vec2Fx[], outward: boolean, reach: number): void => {
         const dirs = fence.map((p, i) => {
           const c = track.centerline[i]!;
