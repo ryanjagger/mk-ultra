@@ -494,8 +494,13 @@ function buildKart(look: KartLook, name: string | null): KartVisual {
     color: '#3a3d44', roughness: 0.55, metalness: 0.2, map: detailMaps()?.carbon ?? null,
   });
   // reflections live on the kart materials only (null until the env loads;
-  // applyEnvToKarts patches karts built before then) — never scene.environment
-  for (const m of [paint, accentPaint, chrome, carbon]) m.envMap = ENV_MAP;
+  // applyEnvToKarts patches karts built before then) — never scene.environment.
+  // Tag this exact set so the async patch reflects the same materials (not the
+  // rubber/skin/balloons) whether a kart is built before or after the env loads.
+  for (const m of [paint, accentPaint, chrome, carbon]) {
+    m.userData.env = true;
+    m.envMap = ENV_MAP;
+  }
 
   // chassis subgroup: lean/squash animate this, wheels stay on the road
   const bodyTilt = new THREE.Group();
@@ -1169,7 +1174,9 @@ export class GameScene {
         const mm = (o as THREE.Mesh).material;
         if (!mm) return;
         for (const mat of Array.isArray(mm) ? mm : [mm]) {
-          if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+          // only the env-tagged set (see buildKart), so rubber/skin/balloons
+          // never pick up timing-dependent reflections on a cold load
+          if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial && mat.userData.env) {
             (mat as THREE.MeshStandardMaterial).envMap = ENV_MAP;
             mat.needsUpdate = true;
           }
