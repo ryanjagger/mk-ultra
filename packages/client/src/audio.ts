@@ -27,6 +27,16 @@ const MASTER_GAIN = 0.32;
 const MUSIC_LEVEL = 0.38;
 /** one-shots from far-away karts/shells fade with distance (world units) */
 const HEAR_RANGE = 70;
+/** master scale for sampled one-shot SFX (per-event relative gain on top) */
+const SFX_LEVEL = 0.55;
+/** a terminated shell with a kart this close (world units) hit it, vs fizzled */
+const SHELL_HIT_RANGE = 1.4;
+/** generated one-shot samples under public/sfx, preloaded on unlock */
+const SFX_NAMES = [
+  'countdown', 'start', 'pickup', 'boost', 'spinout',
+  'drift1', 'drift2', 'finish',
+  'shell-launch', 'shell-bounce', 'shell-hit', 'oil',
+] as const;
 
 function makeNoiseBuffer(ctx: AudioContext): AudioBuffer {
   const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -73,6 +83,10 @@ export class AudioEngine {
   muted = localStorage.getItem('mk-muted') === '1';
   private hidden = false;
 
+  // sampled one-shot SFX: decoded once per name, fired through the master bus
+  private sfxBuffers = new Map<string, AudioBuffer>();
+  private sfxLoading = new Set<string>();
+
   // soundtrack: decoded once per url, looped on its own bus, crossfaded
   private musicBuffers = new Map<string, AudioBuffer>();
   private musicLoading = new Set<string>();
@@ -92,6 +106,7 @@ export class AudioEngine {
       this.master.connect(this.ctx.destination);
       this.noise = makeNoiseBuffer(this.ctx);
       this.buildEngineVoice();
+      this.preloadSfx();
       this.syncMusic(); // a track requested before unlock starts now
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -158,6 +173,44 @@ export class AudioEngine {
       this.musicLoading.delete(url);
     }
     this.syncMusic();
+  }
+
+  /** Kick off decoding of every one-shot sample (once, on unlock). */
+  private preloadSfx(): void {
+    for (const name of SFX_NAMES) void this.loadSfx(name);
+  }
+
+  private async loadSfx(name: string): Promise<void> {
+    if (this.sfxBuffers.has(name) || this.sfxLoading.has(name) || !this.ctx) return;
+    this.sfxLoading.add(name);
+    try {
+      const res = await fetch(`/sfx/${name}.mp3`);
+      if (res.ok) this.sfxBuffers.set(name, await this.ctx.decodeAudioData(await res.arrayBuffer()));
+    } catch {
+      // missing/undecodable sample — the synth fallback at the call site covers it
+    } finally {
+      this.sfxLoading.delete(name);
+    }
+  }
+
+  /**
+   * Fire a preloaded one-shot sample at `gain` (0..1, pre-master). Returns
+   * false when the buffer isn't ready (so the caller can fall back to its synth
+   * blip); returns true silently when muted so we don't double up on a fallback.
+   */
+  private sample(name: string, gain = 1): boolean {
+    if (!this.ctx || !this.master) return false;
+    const buf = this.sfxBuffers.get(name);
+    if (!buf) return false;
+    if (this.muted) return true;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.value = Math.max(0, gain * SFX_LEVEL);
+    src.connect(g).connect(this.master);
+    src.start(t);
+    return true;
   }
 
   toggleMute(): boolean {
@@ -422,10 +475,12 @@ export class AudioEngine {
   private detectCountdown(st: GameState): void {
     if (st.phase === PHASE_COUNTDOWN) {
       const n = Math.ceil((COUNTDOWN_TICKS - st.tick) / 60);
-      if (n !== this.prevCountdownN && n >= 1 && n <= 3) this.tone(440, 0.12, { type: 'sine', gain: 0.2 });
+      if (n !== this.prevCountdownN && n >= 1 && n <= 3) {
+        if (!this.sample('countdown', 0.85)) this.tone(440, 0.12, { type: 'sine', gain: 0.2 });
+      }
       this.prevCountdownN = n;
     } else if (this.prevPhase === PHASE_COUNTDOWN && st.phase === PHASE_RACING) {
-      this.tone(880, 0.4, { type: 'sine', gain: 0.24 });
+      if (!this.sample('start', 1)) this.tone(880, 0.4, { type: 'sine', gain: 0.24 });
       this.prevCountdownN = -1;
     }
   }
@@ -444,25 +499,28 @@ export class AudioEngine {
 
       // pickup chime (local only — remote pickups aren't your news)
       if (local && k.heldItem !== ITEM_NONE && prev.heldItem === ITEM_NONE) {
-        this.arpeggio([660, 990]);
+        if (!this.sample('pickup', 0.9)) this.arpeggio([660, 990]);
       }
       // boost ignition: a jump up in boostTicks (drift release, item, pad refresh)
       if (k.boostTicks > prev.boostTicks + 30 && k.boostTicks > 30 && prev.boostTicks < BOOST_CAP - 30) {
-        this.noiseBurst(0.35, { from: 250, to: 2600, gain: 0.2 * vol });
+        if (!this.sample('boost', 0.9 * vol)) this.noiseBurst(0.35, { from: 250, to: 2600, gain: 0.2 * vol });
       }
       // spin-out sting
       if (k.spinTicks > 0 && prev.spinTicks === 0) {
-        this.tone(420, 0.5, { type: 'sawtooth', gain: 0.22 * vol, slideTo: 70 });
-        this.noiseBurst(0.3, { from: 900, to: 200, gain: 0.18 * vol });
+        if (!this.sample('spinout', 0.95 * vol)) {
+          this.tone(420, 0.5, { type: 'sawtooth', gain: 0.22 * vol, slideTo: 70 });
+          this.noiseBurst(0.3, { from: 900, to: 200, gain: 0.18 * vol });
+        }
       }
       // drift charge tier-ups (local only — it's your charge meter)
       const tier = k.driftCharge >= DRIFT_TIER2_TICKS ? 2 : k.driftCharge >= DRIFT_TIER1_TICKS ? 1 : 0;
       if (local && tier > prev.driftTier) {
-        this.tone(tier === 2 ? 1760 : 1320, 0.09, { type: 'sine', gain: 0.14 });
+        const drift = tier === 2 ? 'drift2' : 'drift1';
+        if (!this.sample(drift, tier === 2 ? 0.75 : 0.6)) this.tone(tier === 2 ? 1760 : 1320, 0.09, { type: 'sine', gain: 0.14 });
       }
       // finish line
       if (k.finishTick >= 0 && prev.finishTick < 0 && local) {
-        this.arpeggio([523, 659, 784, 1047], 0.11, 0.2);
+        if (!this.sample('finish', 1)) this.arpeggio([523, 659, 784, 1047], 0.11, 0.2);
       }
 
       this.prevKarts[i] = {
@@ -479,16 +537,34 @@ export class AudioEngine {
     st.shells.forEach((s, i) => {
       const prevTtl = this.prevShellTtl[i] ?? 0;
       const prevBounces = this.prevShellBounces[i] ?? 0;
-      const vol = this.hear(st, you, fxToFloat(s.x), fxToFloat(s.y));
+      const sx = fxToFloat(s.x);
+      const sy = fxToFloat(s.y);
+      const vol = this.hear(st, you, sx, sy);
       if (s.ttl > 0 && prevTtl === 0) {
-        this.tone(240, 0.16, { type: 'square', gain: 0.2 * (s.owner === you ? 1 : vol), slideTo: 120 });
+        const mine = s.owner === you;
+        if (!this.sample('shell-launch', 0.85 * (mine ? 1 : vol)))
+          this.tone(240, 0.16, { type: 'square', gain: 0.2 * (mine ? 1 : vol), slideTo: 120 });
       } else if (s.ttl > 0 && s.bounces > prevBounces) {
-        this.tone(320, 0.06, { type: 'square', gain: 0.16 * vol });
+        if (!this.sample('shell-bounce', 0.6 * vol)) this.tone(320, 0.06, { type: 'square', gain: 0.16 * vol });
+      } else if (s.ttl === 0 && prevTtl > 0 && this.nearestKartDist(st, sx, sy) < SHELL_HIT_RANGE) {
+        // a shell that died next to a kart hit it — punch the impact (the
+        // victim's spin-out sting layers on via detectKartEvents). A shell that
+        // fizzled in open space stays silent.
+        this.sample('shell-hit', 0.85 * vol);
       }
-      // a hit plays the victim's spin-out sting via detectKartEvents
       this.prevShellTtl[i] = s.ttl;
       this.prevShellBounces[i] = s.bounces;
     });
+  }
+
+  /** Distance from a world point to the closest kart, in world units. */
+  private nearestKartDist(st: GameState, x: number, y: number): number {
+    let best = Infinity;
+    for (const k of st.karts) {
+      const d = Math.hypot(fxToFloat(k.x) - x, fxToFloat(k.y) - y);
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   private detectOilEvents(st: GameState, you: number): void {
@@ -496,7 +572,7 @@ export class AudioEngine {
       const prevTtl = this.prevOilTtl[i] ?? 0;
       if (o.ttl > 0 && prevTtl === 0) {
         const vol = this.hear(st, you, fxToFloat(o.x), fxToFloat(o.y));
-        this.tone(170, 0.22, { type: 'sine', gain: 0.2 * vol, slideTo: 55 });
+        if (!this.sample('oil', 0.7 * vol)) this.tone(170, 0.22, { type: 'sine', gain: 0.2 * vol, slideTo: 55 });
       }
       this.prevOilTtl[i] = o.ttl;
     });
