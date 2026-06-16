@@ -113,59 +113,66 @@
 
     <div id="screen-lobby" class="screen hidden">
       <div class="card lobby-card">
-        <!-- the shareable code is the hub's headline -->
-        <span class="field-label">Room code</span>
-        <button id="lobby-code" class="code-big" title="Click to copy"><span id="lobby-code-text">----</span><span class="ico" data-icon="copy"></span></button>
-        <p class="hero-caption muted">share this code to invite friends</p>
+        <!-- two stacking columns (identical to one column in portrait); they
+             sit side by side on a short, wide landscape viewport so the START
+             RACE button never drops below the fold -->
+        <div class="lobby-col">
+          <!-- the shareable code is the hub's headline -->
+          <span class="field-label">Room code</span>
+          <button id="lobby-code" class="code-big" title="Click to copy"><span id="lobby-code-text">----</span><span class="ico" data-icon="copy"></span></button>
+          <p class="hero-caption muted">share this code to invite friends</p>
 
-        <div class="divider"></div>
-        <span class="section-label">Race setup</span>
-        <div class="setup-grid">
-          <div class="setup-field">
-            <label class="field-label" for="lobby-track">Track</label>
-            <select id="lobby-track"></select>
+          <div class="divider"></div>
+          <span class="section-label">Race setup</span>
+          <div class="setup-grid">
+            <div class="setup-field">
+              <label class="field-label" for="lobby-track">Track</label>
+              <select id="lobby-track"></select>
+            </div>
+            <div class="setup-field">
+              <label class="field-label" for="lobby-laps">Laps</label>
+              <select id="lobby-laps">
+                <option value="1">1 lap</option>
+                <option value="2">2 laps</option>
+                <option value="3">3 laps</option>
+                <option value="5">5 laps</option>
+              </select>
+            </div>
+            <div class="setup-field">
+              <label class="field-label" for="lobby-mode">Mode</label>
+              <select id="lobby-mode">
+                <option value="race">🏁 Race</option>
+                <option value="battle">🎈 Battle</option>
+              </select>
+            </div>
+            <div class="setup-field">
+              <label class="field-label" for="lobby-cup">Format</label>
+              <select id="lobby-cup">
+                <option value="0">Single race</option>
+                <option value="3">Cup · 3 races</option>
+                <option value="4">Cup · 4 races</option>
+              </select>
+            </div>
           </div>
-          <div class="setup-field">
-            <label class="field-label" for="lobby-laps">Laps</label>
-            <select id="lobby-laps">
-              <option value="1">1 lap</option>
-              <option value="2">2 laps</option>
-              <option value="3">3 laps</option>
-              <option value="5">5 laps</option>
-            </select>
-          </div>
-          <div class="setup-field">
-            <label class="field-label" for="lobby-mode">Mode</label>
-            <select id="lobby-mode">
-              <option value="race">🏁 Race</option>
-              <option value="battle">🛡️ Battle</option>
-            </select>
-          </div>
-          <div class="setup-field">
-            <label class="field-label" for="lobby-cup">Format</label>
-            <select id="lobby-cup">
-              <option value="0">Single race</option>
-              <option value="3">Cup · 3 races</option>
-              <option value="4">Cup · 4 races</option>
-            </select>
-          </div>
+          <label class="check"><input type="checkbox" id="lobby-public" /> List in public rooms</label>
         </div>
-        <label class="check"><input type="checkbox" id="lobby-public" /> List in public rooms</label>
 
-        <div class="divider"></div>
-        <div class="players-head">
-          <span class="field-label">Players <span id="lobby-player-count"></span></span>
-          <button id="btn-add-bot" class="btn btn-ghost hidden">+ CPU</button>
-          <button id="btn-remove-bot" class="btn btn-ghost hidden">− CPU</button>
-        </div>
-        <ul id="lobby-players" class="player-list"></ul>
-        <p id="lobby-meta" class="muted"></p>
+        <div class="lobby-col">
+          <div class="divider lobby-gutter"></div>
+          <div class="players-head">
+            <span class="field-label">Players <span id="lobby-player-count"></span></span>
+            <button id="btn-add-bot" class="btn btn-ghost hidden">+ CPU</button>
+            <button id="btn-remove-bot" class="btn btn-ghost hidden">− CPU</button>
+          </div>
+          <ul id="lobby-players" class="player-list"></ul>
+          <p id="lobby-meta" class="muted"></p>
 
-        <p id="lobby-hint" class="muted"></p>
-        <div class="row">
-          <button id="btn-ready" class="btn btn-primary">Ready up</button>
-          <button id="btn-start" class="btn btn-go hidden">Start race</button>
-          <button id="btn-leave" class="btn btn-ghost">Leave</button>
+          <p id="lobby-hint" class="muted"></p>
+          <div class="row">
+            <button id="btn-ready" class="btn btn-primary">Ready up</button>
+            <button id="btn-start" class="btn btn-go hidden">Start race</button>
+            <button id="btn-leave" class="btn btn-ghost">Leave</button>
+          </div>
         </div>
       </div>
     </div>
