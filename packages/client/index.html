@@ -69,8 +69,8 @@
         <!-- secondary column: who you are, plus open games to drop into -->
         <div class="side-col">
           <div class="card driver-card">
-            <label class="field-label" for="name-input">Driver</label>
-            <input id="name-input" name="nickname" maxlength="16" placeholder="Racer" autocomplete="off"
+            <h3>Driver</h3>
+            <input id="name-input" name="nickname" maxlength="16" placeholder="Racer" aria-label="Driver name" autocomplete="off"
               spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <div id="driver-row">
               <span id="driver-level" class="level-chip">LV 0</span>
@@ -90,22 +90,22 @@
             <h3>Public rooms</h3>
             <ul id="room-list" class="room-list"><li class="muted">No open rooms — create one!</li></ul>
           </div>
-          <!-- online-race world records; track + laps pick which board to show -->
-          <div class="card lb-card">
-            <h3>Leaderboards</h3>
-            <div class="setup-grid">
-              <div class="setup-field">
-                <label class="field-label" for="lb-track">Track</label>
-                <select id="lb-track"></select>
-              </div>
-              <div class="setup-field">
-                <label class="field-label" for="lb-laps">Laps</label>
-                <select id="lb-laps"></select>
-              </div>
+        </div>
+        <!-- world records get their own column on wide screens; wraps below on narrow -->
+        <div class="card lb-card">
+          <h3>Leaderboards</h3>
+          <div class="setup-grid">
+            <div class="setup-field">
+              <label class="field-label" for="lb-track">Track</label>
+              <select id="lb-track"></select>
             </div>
-            <p id="lb-best" class="muted"></p>
-            <ol id="lb-list" class="results-list"></ol>
+            <div class="setup-field">
+              <label class="field-label" for="lb-laps">Laps</label>
+              <select id="lb-laps"></select>
+            </div>
           </div>
+          <p id="lb-best" class="muted"></p>
+          <ol id="lb-list" class="results-list"></ol>
         </div>
       </div>
       <p class="help">drive: <b>WASD</b>/<b>arrows</b> · drift: <b>space</b> · use item: <b>E</b> · look back: <b>R</b> · hold a drift to charge a boost</p>
