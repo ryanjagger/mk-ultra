@@ -371,7 +371,7 @@ export class AudioEngine {
 
     this.updateEngineVoice(st, you);
     this.updateProximityVoices(st, you);
-    this.detectCountdown(st);
+    this.detectCountdown(st, controller.prestart ?? false);
     this.detectKartEvents(st, you);
     this.detectShellEvents(st, you);
     this.detectOilEvents(st, you);
@@ -450,8 +450,12 @@ export class AudioEngine {
     this.squealGain!.gain.setTargetAtTime(this.muted ? 0 : squeal, t, 0.05);
   }
 
-  private detectCountdown(st: GameState): void {
+  private detectCountdown(st: GameState, prestart: boolean): void {
     if (st.phase === PHASE_COUNTDOWN) {
+      // during the pre-GO buffer the sim is frozen at tick 0 (n===3) but the
+      // HUD shows "GET READY", not "3" — stay silent so the first chime lands
+      // with the visible "3" once the clock starts (prevCountdownN stays -1)
+      if (prestart) return;
       const n = Math.ceil((COUNTDOWN_TICKS - st.tick) / 60);
       if (n !== this.prevCountdownN && n >= 1 && n <= 3) {
         if (!this.sample('countdown', 0.85)) this.tone(440, 0.12, { type: 'sine', gain: 0.2 });
