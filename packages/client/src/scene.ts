@@ -1497,16 +1497,25 @@ export class GameScene {
       g.add(asphalt);
     }
 
-    // walls along the fence — the exact segments the sim collides with
+    // walls along the fence — the exact segments the sim collides with.
+    // shared concrete-barrier detail, tinted per theme: lifted high so the
+    // vivid wall colours survive the multiply, normal map adds panel relief.
+    const wallTex = surfaceMaps('/textures/wall_barrier.png', {
+      repeat: 2, repeatY: 1, lift: 0.45, normalStrength: 1.6,
+    });
     const wallMatA = new THREE.MeshStandardMaterial({
       color: th.wallA,
       roughness: 0.7,
+      map: wallTex?.map ?? null,
+      normalMap: wallTex?.normal ?? null,
       emissive: th.night ? th.wallA : '#000000',
       emissiveIntensity: th.night ? 0.55 : 0,
     });
     const wallMatB = new THREE.MeshStandardMaterial({
       color: th.wallB,
       roughness: 0.7,
+      map: wallTex?.map ?? null,
+      normalMap: wallTex?.normal ?? null,
       emissive: th.night ? th.wallB : '#000000',
       emissiveIntensity: th.night ? 0.55 : 0,
     });
